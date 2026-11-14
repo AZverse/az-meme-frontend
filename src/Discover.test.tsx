@@ -58,6 +58,15 @@ describe("Discover ordering and honest missing values", () => {
         }),
       ).toMatchObject({ marketCapUsd: null, liveRevision: "3" });
       expect(reconcileMarkets([a, b], [c, b, changed], false).items[0]).toBe(c);
+      expect(
+        mergeLiveToken(live, {
+          tokenAddress: "a",
+          chainId: 4663,
+          priceObservedAt: null,
+          priceUsd: null,
+          marketCapUsd: null,
+        }),
+      ).toMatchObject({ priceUsd: null, marketCapUsd: null, priceObservedAt: null });
     })();
 
     // never derives graduation from a missing progress value or an old stage

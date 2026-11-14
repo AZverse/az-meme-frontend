@@ -61,8 +61,8 @@ export function mergeLiveToken(current: Token, patch: Partial<Token>): Token {
   )
     return current;
   if (
-    patch.priceObservedAt !== undefined &&
-    current.priceObservedAt !== undefined &&
+    patch.priceObservedAt != null &&
+    current.priceObservedAt != null &&
     (patch.priceObservedAt < current.priceObservedAt ||
       (patch.priceObservedAt === current.priceObservedAt &&
         patch.liveRevision &&
