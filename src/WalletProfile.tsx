@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { DesignIcon } from "./DesignIcon";
-import { amount, money, relativeTime, safeUrl, shortAddress } from "./display";
+import { amount, money, walletTradeTime, safeUrl, shortAddress } from "./display";
+import { WalletExplorerLink } from "./WalletExplorerLink";
 import { walletApi } from "./wallet-api";
 import { useUserState } from "./user-state";
 import type {
@@ -41,6 +42,7 @@ function ProfileContent({
 }: WalletProfileProps) {
   const [profile, setProfile] = useState<WalletProfileData | null>(null);
   const [positions, setPositions] = useState<WalletPosition[]>([]);
+  const [partialHoldings, setPartialHoldings] = useState(false);
   const [activities, setActivities] = useState<WalletActivity[]>([]);
   const [positionCursor, setPositionCursor] = useState<string | null>(null);
   const [activityCursor, setActivityCursor] = useState<ActivityCursor | null>(null);
@@ -64,6 +66,9 @@ function ProfileContent({
       if (profileResult.status === "fulfilled") setProfile(profileResult.value);
       if (positionsResult.status === "fulfilled") {
         setPositions(positionsResult.value.items);
+        setPartialHoldings(
+          positionsResult.value.projectionCoverage === "PARTIAL_LEGACY_UNCONFIRMED",
+        );
         setPositionCursor(positionsResult.value.nextCursor);
       }
       if (activitiesResult.status === "fulfilled") {
@@ -89,6 +94,7 @@ function ProfileContent({
         if (signal.aborted) return;
         setPositions((previous) => [...previous, ...page.items]);
         setPositionCursor(page.nextCursor);
+        if (page.projectionCoverage === "PARTIAL_LEGACY_UNCONFIRMED") setPartialHoldings(true);
       })
       .catch((cause: unknown) => {
         if (!signal.aborted) setError(cause instanceof Error ? cause.message : "Positions failed");
@@ -116,6 +122,10 @@ function ProfileContent({
       });
   }
   const stats = profile?.stats;
+  const tradeCounts =
+    stats && Number.isFinite(stats.buyCount) && Number.isFinite(stats.sellCount)
+      ? `${stats.buyCount} / ${stats.sellCount}`
+      : null;
   const winRate = stats?.winRate == null ? "—" : `${(Number(stats.winRate) * 100).toFixed(1)}%`;
   const xUrl = safeUrl(profile?.xUrl);
   const avatar = safeUrl(profile?.avatarUrl);
@@ -174,6 +184,9 @@ function ProfileContent({
             </svg>
             {addressCopied && <span className="visually-hidden">Address copied</span>}
           </button>
+          <WalletExplorerLink chainId={profile?.chainId} kind="address" value={address}>
+            Explorer
+          </WalletExplorerLink>
           {xUrl && (
             <div className="profile-meta">
               <a href={xUrl} target="_blank" rel="noreferrer">
@@ -226,12 +239,13 @@ function ProfileContent({
           <strong aria-label="7d buys / sells">
             {loading ? (
               <span className="stat-value-loading" aria-hidden="true" />
-            ) : stats ? (
-              `${stats.buyCount} / ${stats.sellCount}`
             ) : (
-              "—"
+              (tradeCounts ?? "—")
             )}
           </strong>
+          {!loading && tradeCounts !== null && profile?.windowComplete === false && (
+            <small>Incomplete history</small>
+          )}
         </div>
         <div className={Number(profile?.unrealizedPnlUsd) < 0 ? "negative" : undefined}>
           <span>Unrealized PnL</span>
@@ -247,6 +261,7 @@ function ProfileContent({
         </div>
       </div>
       <h3 className="profile-section-title">Holding</h3>
+      {partialHoldings && <p role="status">Some historical holdings cannot be verified.</p>}
       <div className="table-scroll wallet-holdings-scroll">
         <table className="wallet-holdings-table">
           <tbody>
@@ -392,7 +407,9 @@ function ProfileContent({
                   className="wallet-trade-time"
                   title={new Date(activity.timestampMs).toLocaleString()}
                 >
-                  {relativeTime(activity.timestampMs)}
+                  <WalletExplorerLink chainId={activity.chainId} kind="tx" value={activity.txHash}>
+                    {walletTradeTime(activity.timestampMs)}
+                  </WalletExplorerLink>
                 </td>
                 <td className={`wallet-trade-side trade-side-${activity.kind}`}>
                   {

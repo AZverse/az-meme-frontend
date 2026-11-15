@@ -65,3 +65,15 @@ export function age(seconds: number | null | undefined): string {
         ? `${Math.floor(seconds / 3600)}h`
         : `${Math.floor(seconds / 86400)}d`;
 }
+
+/** Wallet trade timestamps are Unix milliseconds; retain the remaining hours/minutes. */
+export function walletTradeTime(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  const seconds = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (seconds < 60) return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = `${hours % 24}h ${minutes % 60}min`;
+  return hours < 24 ? remainder : `${Math.floor(hours / 24)}d ${remainder}`;
+}

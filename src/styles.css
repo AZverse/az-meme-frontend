@@ -4484,7 +4484,7 @@ textarea {
   padding: 6px 0;
 }
 .wallet-trades-table td:nth-child(1) {
-  width: 57px;
+  width: 104px;
 }
 .wallet-trades-table td:nth-child(2) {
   width: 62px;
@@ -4796,4 +4796,20 @@ textarea {
     height: auto;
     min-height: 50px;
   }
+}
+
+.wallet-explorer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wallet-explorer-link svg {
+  flex-shrink: 0;
+}
+.profile-copy > .wallet-explorer-link {
+  margin-left: 8px;
+  font-size: 12px;
 }

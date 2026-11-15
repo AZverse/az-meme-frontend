@@ -19,7 +19,12 @@ export const walletApi = {
     address: string,
     after?: string,
     signal?: AbortSignal,
-  ): Promise<{ items: WalletPosition[]; nextCursor: string | null }> {
+  ): Promise<{
+    items: WalletPosition[];
+    nextCursor: string | null;
+    projectionCoverage?: "PARTIAL_LEGACY_UNCONFIRMED";
+    unverifiedPositionCount?: number;
+  }> {
     const query = new URLSearchParams({ limit: "50" });
     if (after) query.set("after", after);
     return requestPublicMarket(

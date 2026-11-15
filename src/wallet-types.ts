@@ -55,8 +55,8 @@ export interface WalletPosition {
   unrealizedPnlUsd?: string | null;
 }
 export interface WalletStats {
-  buyCount: number;
-  sellCount: number;
+  buyCount: number | null;
+  sellCount: number | null;
   boughtUsd: string | null;
   soldUsd: string | null;
   realizedPnlUsd: string | null;
