@@ -14,8 +14,8 @@ import {
   pendingExecutionId,
   pollTransactionUntilTerminal,
 } from "./transaction-tracker";
-import { walletApi } from "./wallet-api";
 import type { AccountSummary, AccountTransaction, Token } from "./types";
+import type { WalletPosition } from "./wallet-types";
 
 export interface QuickTradeRequest {
   id: string;
@@ -26,6 +26,8 @@ export interface TradingPanelProps {
   token: Token;
   account: AccountSummary | null;
   walletAddress?: string;
+  /** This token's position from the wallet's full position list; null when absent or not loaded. */
+  position?: WalletPosition | null;
   onConnect?: () => Promise<boolean>;
   onAccountRefresh: () => void;
   quickRequest?: QuickTradeRequest | null;
@@ -46,6 +48,7 @@ function TradingForm({
   token,
   account,
   walletAddress,
+  position,
   onConnect,
   onAccountRefresh,
   quickRequest,
@@ -60,7 +63,10 @@ function TradingForm({
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | Error | null>(null);
   const [approval, setApproval] = useState<ApprovalRequired | null>(null);
-  const [ownBalance, setOwnBalance] = useState<string | null>(null);
+  const ownBalance =
+    position?.quantityComplete && position.quantityAtomic !== null
+      ? formatUnits(BigInt(position.quantityAtomic), position.decimals)
+      : null;
   const [pendingId, setPendingId] = useState(() =>
     walletAddress ? pendingExecutionId(walletAddress) : null,
   );
@@ -84,34 +90,6 @@ function TradingForm({
     active.current = controller;
     return () => controller.abort();
   }, []);
-
-  useEffect(() => {
-    if (!walletAddress) return;
-    const controller = new AbortController();
-    void (async () => {
-      let after: string | undefined;
-      do {
-        const page = await walletApi.positions(walletAddress, after, controller.signal);
-        if (controller.signal.aborted) return;
-        const position = page.items.find(
-          (p) => p.token.toLowerCase() === token.tokenAddress.toLowerCase(),
-        );
-        if (position) {
-          setOwnBalance(
-            position.quantityComplete && position.quantityAtomic !== null
-              ? formatUnits(BigInt(position.quantityAtomic), position.decimals)
-              : null,
-          );
-          return;
-        }
-        after = page.nextCursor ?? undefined;
-      } while (after);
-      setOwnBalance(null);
-    })().catch(() => {
-      if (!controller.signal.aborted) setOwnBalance(null);
-    });
-    return () => controller.abort();
-  }, [walletAddress, token.tokenAddress, account]);
 
   useEffect(() => {
     if (!pendingId || !walletAddress) return;

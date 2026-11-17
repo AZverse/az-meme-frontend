@@ -55,7 +55,9 @@ export function configureServerSignedTransactions(enabled: boolean): void {
   serverSignedTransactions = enabled;
 }
 
-const requestTimeoutMs = 15_000;
+/** Reads fail fast; writes (prepare/order/execute) keep the longer window. */
+const readTimeoutMs = 5_000;
+const writeTimeoutMs = 15_000;
 
 export class ApiError extends Error {
   constructor(
@@ -149,21 +151,24 @@ async function send<T>(
   const controller = new AbortController();
   const cancel = () => controller.abort(init?.signal?.reason);
   let response: Response | undefined;
-  const timer = setTimeout(() => {
-    const mutation =
-      !readOnlyRequest && !["GET", "HEAD"].includes((init?.method ?? "GET").toUpperCase());
-    controller.abort(
-      new ApiError(
-        `${prefix}_${response && !response.ok ? "REQUEST_FAILED" : "REQUEST_TIMEOUT"}`,
-        `${response ? `HTTP ${response.status}: ` : ""}Request timed out${
-          mutation
-            ? "; the result is unconfirmed and a trade may have been broadcast. Check trade history first and do not resubmit"
-            : "; retry shortly"
-        }`,
-        response?.status ?? 0,
-      ),
-    );
-  }, requestTimeoutMs);
+  const readMethod = ["GET", "HEAD"].includes((init?.method ?? "GET").toUpperCase());
+  const timer = setTimeout(
+    () => {
+      const mutation = !readOnlyRequest && !readMethod;
+      controller.abort(
+        new ApiError(
+          `${prefix}_${response && !response.ok ? "REQUEST_FAILED" : "REQUEST_TIMEOUT"}`,
+          `${response ? `HTTP ${response.status}: ` : ""}Request timed out${
+            mutation
+              ? "; the result is unconfirmed and a trade may have been broadcast. Check trade history first and do not resubmit"
+              : "; retry shortly"
+          }`,
+          response?.status ?? 0,
+        ),
+      );
+    },
+    readMethod ? readTimeoutMs : writeTimeoutMs,
+  );
   let rejectAbort!: () => void;
   const aborted = new Promise<never>((_resolve, reject) => {
     rejectAbort = () => reject(controller.signal.reason);

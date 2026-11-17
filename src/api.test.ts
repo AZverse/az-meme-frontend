@@ -374,16 +374,17 @@ describe("bounded HTTP requests", () => {
             new Promise((resolve) => {
               setTimeout(
                 () => resolve({ status: 200, ok: true, text: () => new Promise(() => {}) }),
-                10_000,
+                3_000,
               );
             }),
         ),
       );
       let failure: unknown;
+      // Reads share one 5s deadline: headers at 3s, the body never finishes.
       void memeApi.getAccount().catch((cause) => {
         failure = cause;
       });
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(failure).toMatchObject({ code: "MEME_REQUEST_TIMEOUT", status: 200 });
     })();
     await cleanScenario1();

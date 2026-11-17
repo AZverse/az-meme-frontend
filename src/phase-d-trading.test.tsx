@@ -372,14 +372,12 @@ describe("phase D trading", () => {
         realizedPnlUsd: null,
         updatedAt: 1,
       } as WalletPosition;
-      vi.mocked(walletApi.positions)
-        .mockResolvedValueOnce({ items: [], nextCursor: "first-page" })
-        .mockResolvedValueOnce({ items: [position], nextCursor: null });
       render(
         <TradingPanel
           token={token}
           account={account}
           walletAddress={wallet}
+          position={position}
           onConnect={vi.fn()}
           onAccountRefresh={vi.fn()}
           quickRequest={{ id: "sell", side: "SELL" }}
@@ -387,11 +385,6 @@ describe("phase D trading", () => {
       );
       await waitFor(() =>
         expect(screen.getByText(/Wallet balance: 1.23 MEME/)).toBeInTheDocument(),
-      );
-      expect(walletApi.positions).toHaveBeenCalledWith(
-        wallet,
-        "first-page",
-        expect.any(AbortSignal),
       );
       expect(createQuote).not.toHaveBeenCalled();
       cleanup();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Discover from "./Discover";
 import { memeApi } from "./api";
 import { walletApi } from "./wallet-api";
@@ -12,6 +12,7 @@ import { Portfolio } from "./Portfolio";
 import { DesignIcon } from "./DesignIcon";
 import { amount, money, shortAddress } from "./display";
 import type { AccountSummary, Token } from "./types";
+import type { WalletPosition } from "./wallet-types";
 import "./styles.css";
 
 interface AppProps {
@@ -59,7 +60,10 @@ function Workspace({
   const [summary, setSummary] = useState<AccountSummary | null>(null);
   const [accountError, setAccountError] = useState<string>();
   const [revision, setRevision] = useState(0);
-  const [held, setHeld] = useState<ReadonlySet<string>>(new Set());
+  const [positions, setPositions] = useState<{
+    address: string;
+    byToken: ReadonlyMap<string, WalletPosition>;
+  } | null>(null);
   const [explorer, setExplorer] = useState(
     (import.meta.env.VITE_EXPLORER_BASE_URL as string | undefined) ||
       "https://robinhoodchain.blockscout.com",
@@ -167,27 +171,38 @@ function Workspace({
     [openToken, connect],
   );
   useEffect(() => {
+    if (!walletAddress) return;
     const controller = new AbortController();
-    setHeld(new Set());
-    if (walletAddress)
-      void (async () => {
-        const tokens = new Set<string>();
-        let after: string | undefined;
-        do {
-          const page = await walletApi.positions(walletAddress, after, controller.signal);
-          for (const position of page.items)
-            if (
-              position.quantityComplete &&
-              position.quantityAtomic !== null &&
-              BigInt(position.quantityAtomic) > 0n
-            )
-              tokens.add(position.token.toLowerCase());
-          after = page.nextCursor ?? undefined;
-        } while (after && !controller.signal.aborted);
-        if (!controller.signal.aborted) setHeld(tokens);
-      })().catch(() => {});
+    void (async () => {
+      const byToken = new Map<string, WalletPosition>();
+      let after: string | undefined;
+      do {
+        const page = await walletApi.positions(walletAddress, after, controller.signal);
+        for (const position of page.items) byToken.set(position.token.toLowerCase(), position);
+        after = page.nextCursor ?? undefined;
+      } while (after && !controller.signal.aborted);
+      if (!controller.signal.aborted) setPositions({ address: walletAddress, byToken });
+    })().catch(() => {
+      if (!controller.signal.aborted) setPositions(null);
+    });
     return () => controller.abort();
   }, [walletAddress, revision]);
+  const walletPositions =
+    walletAddress && positions?.address === walletAddress ? positions.byToken : null;
+  const held = useMemo(
+    () =>
+      new Set(
+        [...(walletPositions?.values() ?? [])]
+          .filter(
+            (position) =>
+              position.quantityComplete &&
+              position.quantityAtomic !== null &&
+              BigInt(position.quantityAtomic) > 0n,
+          )
+          .map((position) => position.token.toLowerCase()),
+      ),
+    [walletPositions],
+  );
   const positionValue =
     summary && summary.positions.every((position) => position.valueUsd != null)
       ? summary.positions.reduce((total, position) => total + Number(position.valueUsd), 0)
@@ -452,6 +467,7 @@ function Workspace({
                     token={token}
                     account={summary}
                     walletAddress={walletAddress}
+                    position={walletPositions?.get(token.tokenAddress.toLowerCase()) ?? null}
                     onConnect={connect}
                     quickBuyAmounts={user.quickBuyAmounts}
                     onAccountRefresh={refreshAccount}
