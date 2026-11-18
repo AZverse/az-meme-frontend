@@ -31,6 +31,7 @@ export interface TradingPanelProps {
   quickBuyAmounts?: readonly string[];
   onQuickRequestConsumed?: (id: string) => void;
   onExecutionChange?: () => void;
+  tradingEnabled?: boolean;
 }
 
 export function TradingPanel(props: TradingPanelProps) {
@@ -51,6 +52,7 @@ function TradingForm({
   quickBuyAmounts = [],
   onQuickRequestConsumed,
   onExecutionChange,
+  tradingEnabled = true,
 }: TradingPanelProps) {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [amount, setAmount] = useState(() => quickBuyAmounts[0] ?? "");
@@ -190,7 +192,8 @@ function TradingForm({
 
   const submit = useCallback(
     async (tradeSide: "BUY" | "SELL", input: string) => {
-      if (busyRef.current || !walletAddress || pendingExecutionId(walletAddress)) return;
+      if (!tradingEnabled || busyRef.current || !walletAddress || pendingExecutionId(walletAddress))
+        return;
       const invalid = invalidReason(tradeSide, input);
       if (invalid) {
         setError(invalid);
@@ -253,7 +256,7 @@ function TradingForm({
         if (!signal.aborted) setBusy(false);
       }
     },
-    [invalidReason, quote, token.tokenAddress, walletAddress],
+    [invalidReason, quote, token.tokenAddress, tradingEnabled, walletAddress],
   );
 
   useEffect(() => {
@@ -292,6 +295,7 @@ function TradingForm({
       MEME_REFERENCE_UNAVAILABLE: "Not enough liquidity to quote",
       MEME_LOCAL_STATE_UNAVAILABLE: "Market data is syncing. Try again shortly",
       MEME_UNAUTHORIZED: "Connect wallet to continue",
+      MEME_TRADING_DISABLED: "Trading not open yet",
     } as Record<string, string>
   )[errorCode ?? ""];
   const invalid = invalidReason(side, amount);
@@ -523,12 +527,12 @@ function TradingForm({
       ) : (
         <button
           className="primary"
-          disabled={busy || Boolean(pendingId) || Boolean(invalid) || !quote}
+          disabled={!tradingEnabled || busy || Boolean(pendingId) || Boolean(invalid) || !quote}
           onClick={() => {
             void submit(side, amount);
           }}
         >
-          {busy ? "Processing…" : actionLabel}
+          {!tradingEnabled ? "Trading not open yet" : busy ? "Processing…" : actionLabel}
         </button>
       )}
     </section>

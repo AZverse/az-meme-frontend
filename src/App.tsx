@@ -62,6 +62,7 @@ function Workspace({
     (import.meta.env.VITE_EXPLORER_BASE_URL as string | undefined) ||
       "https://robinhoodchain.blockscout.com",
   );
+  const [tradingEnabled, setTradingEnabled] = useState(true);
   const [quick, setQuick] = useState<{
     id: string;
     side: "BUY" | "SELL";
@@ -88,6 +89,7 @@ function Workspace({
       .getConfig()
       .then((config) => {
         if (active && config.explorerBaseUrl) setExplorer(config.explorerBaseUrl);
+        if (active) setTradingEnabled(config.tradingEnabled !== false);
       })
       .catch(() => {});
     return () => {
@@ -440,6 +442,7 @@ function Workspace({
                     }
                     onQuickRequestConsumed={consumeQuick}
                     onExecutionChange={refreshAccount}
+                    tradingEnabled={tradingEnabled}
                   />
                 </TokenDetails>
               </div>

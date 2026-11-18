@@ -430,6 +430,7 @@ it("quote errors show short states, preserve codes in title and keep buying disa
       "Market data is syncing. Try again shortly",
     ],
     ["MEME_UNAUTHORIZED", "Unauthorized", "Connect wallet to continue"],
+    ["MEME_TRADING_DISABLED", "Trading is not open yet", "Trading not open yet"],
     ["UNKNOWN_ERROR", "Unexpected service failure", "Unexpected service failure"],
   ]) {
     vi.spyOn(memeApi, "createQuote").mockRejectedValue(new ApiError(code, message, 409));
@@ -453,4 +454,30 @@ it("quote errors show short states, preserve codes in title and keep buying disa
     cleanup();
     vi.restoreAllMocks();
   }
+});
+
+it("shows quotes but disables the trade button and sends no order while trading is not open", async () => {
+  const create = vi.spyOn(memeApi, "createQuote").mockResolvedValue(terms);
+  const execute = vi.spyOn(memeApi, "executeMainAccountTrade");
+  render(
+    <TradingPanel
+      token={token}
+      walletAddress={wallet}
+      account={account}
+      onAccountRefresh={vi.fn()}
+      quickBuyAmounts={["100"]}
+      tradingEnabled={false}
+    />,
+  );
+  expect(await screen.findByText("90 MEME")).toBeInTheDocument();
+  const button = screen.getByRole("button", { name: "Trading not open yet" });
+  expect(button).toBeDisabled();
+  fireEvent.click(button);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(create).toHaveBeenCalledTimes(1);
+  expect(create).toHaveBeenCalledWith(
+    expect.objectContaining({ purpose: "ESTIMATE" }),
+    expect.any(AbortSignal),
+  );
+  expect(execute).not.toHaveBeenCalled();
 });

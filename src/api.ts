@@ -264,6 +264,7 @@ export const memeApi = {
       defaultSlippageBps: number;
       marketRefreshMs: { hot: number; new: number };
       accountMode: "AZ_ACCOUNT" | "TREASURY_OPERATORS";
+      tradingEnabled?: boolean;
       mainAccountAddress: string | null;
       settlementAssets: Asset[];
     }>("/sapi/v1/meme/config"),
