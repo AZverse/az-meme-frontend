@@ -7,7 +7,6 @@ vi.mock("./api", () => ({
   authenticateWallet: vi.fn(),
   clearSessionToken: vi.fn(),
   restoreWalletSession: vi.fn(),
-  configureServerSignedTransactions: vi.fn(),
 }));
 
 vi.mock("./App", () => ({
@@ -131,19 +130,19 @@ describe("WalletTrading wallet authentication", () => {
       expect(provider.request).toHaveBeenCalledWith({ method: "eth_requestAccounts" });
       expect(vi.mocked(authenticateWallet)).toHaveBeenCalledWith(address, provider);
       vi.mocked(restoreWalletSession).mockResolvedValue({
-        userId: "privy-user",
+        userId: "wallet-user",
         accountId: tradingAddress,
         loginAddress: address,
       });
       await act(async () => resolveAuthentication());
       expect(screen.getByTestId("wallet-address")).toHaveTextContent(tradingAddress);
-      expect(screen.getByTestId("user-id")).toHaveTextContent("privy-user");
+      expect(screen.getByTestId("user-id")).toHaveTextContent("wallet-user");
     })();
     await cleanScenario2();
     await prepareScenario1();
     // Reload restores only the authenticated server account, without another signature.
     vi.mocked(restoreWalletSession).mockResolvedValue({
-      userId: "privy-user",
+      userId: "wallet-user",
       accountId: tradingAddress,
       loginAddress: address,
     });
@@ -151,7 +150,7 @@ describe("WalletTrading wallet authentication", () => {
     await waitFor(() =>
       expect(screen.getByTestId("wallet-address")).toHaveTextContent(tradingAddress),
     );
-    expect(screen.getByTestId("user-id")).toHaveTextContent("privy-user");
+    expect(screen.getByTestId("user-id")).toHaveTextContent("wallet-user");
     expect(authenticateWallet).not.toHaveBeenCalled();
     expect(provider.request).not.toHaveBeenCalledWith({ method: "eth_requestAccounts" });
     fireEvent.click(screen.getByRole("button", { name: "退出" }));

@@ -3,7 +3,6 @@ import App from "./App";
 import {
   authenticateWallet,
   clearSessionToken,
-  configureServerSignedTransactions,
   restoreWalletSession,
   type WalletSession,
   type WalletProvider,
@@ -16,10 +15,8 @@ declare global {
 }
 
 export default function WalletTrading({
-  serverSignedTransactions = false,
   onConnection,
 }: {
-  serverSignedTransactions?: boolean;
   onConnection?: (props: Partial<ComponentProps<typeof App>>) => void;
 }) {
   const provider = typeof window === "undefined" ? undefined : window.ethereum;
@@ -67,7 +64,6 @@ export default function WalletTrading({
   }, [provider]);
 
   useEffect(() => {
-    configureServerSignedTransactions(serverSignedTransactions);
     if (!provider) {
       setPending(false);
       setError(undefined);
@@ -115,7 +111,7 @@ export default function WalletTrading({
       active = false;
       provider.removeListener?.("accountsChanged", sync);
     };
-  }, [provider, serverSignedTransactions]);
+  }, [provider]);
 
   const props = useMemo<ComponentProps<typeof App>>(
     () => ({

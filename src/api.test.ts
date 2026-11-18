@@ -43,7 +43,7 @@ describe("runtime endpoint fallback", () => {
     // Saved credentials are checked against the server's signed login identity and trading account.
     const loginAddress = `0x${"1".repeat(40)}`;
     const accountId = `0x${"2".repeat(40)}`;
-    const session = { userId: "privy-user", accountId, loginAddress };
+    const session = { userId: "wallet-user", accountId, loginAddress };
     const fetch = vi
       .fn()
       .mockImplementation(async () => new Response(JSON.stringify({ rc: 0, result: session })));

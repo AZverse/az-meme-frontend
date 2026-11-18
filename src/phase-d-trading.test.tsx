@@ -2,11 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import TradingPanel from "./TradingPanel";
 import Portfolio from "./Portfolio";
-import { ApiError, configureServerSignedTransactions, memeApi, setSessionToken } from "./api";
+import { ApiError, memeApi, setSessionToken } from "./api";
 import { preparationInput, requirePreparedQuote, requireQuoteTerms } from "./quote-flow";
 import { forgetExecution, pendingExecutionId } from "./transaction-tracker";
-import { walletApi } from "./wallet-api";
-import type { WalletPosition } from "./wallet-types";
 import type { AccountSummary, Quote, Token } from "./types";
 
 const wallet = `0x${"1".repeat(40)}`;
@@ -59,15 +57,11 @@ const account: AccountSummary = {
     balances: [{ asset: "USDG", available: "1000", frozen: "0" }],
   },
   quoteBalances: [{ asset: "USDG", available: "0", frozen: "0" }],
-  walletAssets: {
-    address: wallet,
-    balances: [{ asset: "USDG", available: "0", frozen: "0" }],
-  },
   positions: [],
 };
 
 const prepareScenario1 = () => {
-  vi.spyOn(walletApi, "positions").mockResolvedValue({ items: [], nextCursor: null });
+  vi.spyOn(memeApi, "getAccount").mockResolvedValue(account);
 };
 beforeEach(prepareScenario1);
 
@@ -77,7 +71,6 @@ const cleanScenario2 = () => {
   vi.unstubAllGlobals();
   localStorage.clear();
   setSessionToken(null);
-  configureServerSignedTransactions(false);
 };
 afterEach(cleanScenario2);
 
@@ -192,10 +185,6 @@ describe("phase D trading", () => {
     const userFunded: AccountSummary = {
       ...account,
       quoteBalances: [{ asset: "USDG", available: "1000", frozen: "0" }],
-      walletAssets: {
-        address: wallet,
-        balances: [{ asset: "USDG", available: "1000", frozen: "0" }],
-      },
       treasury: {
         ...account.treasury!,
         balances: [{ asset: "USDG", available: "0.5", frozen: "0" }],
@@ -239,20 +228,9 @@ describe("phase D trading", () => {
     await prepareScenario1();
     // resumes the same wallet execution after a timeout without submitting again or leaking across wallets
     await (async () => {
-      configureServerSignedTransactions(true);
       setSessionToken("session");
       const executionId = "ac111111-1111-4111-a111-111111111111";
-      const fetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              rc: 0,
-              result: { record: { executionId, status: "PENDING" }, authorizationRequest: {} },
-            }),
-          ),
-        )
-        .mockRejectedValueOnce(new Error("offline"));
+      const fetch = vi.fn().mockRejectedValueOnce(new Error("offline"));
       vi.stubGlobal("fetch", fetch);
       await expect(
         memeApi.executeMainAccountTrade({
@@ -280,8 +258,8 @@ describe("phase D trading", () => {
         slippageBps: 2000,
         feeConfigVersion: "1",
       });
-      expect(fetch).toHaveBeenCalledTimes(3);
-      expect(fetch.mock.calls[2]![1].method).toBeUndefined();
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch.mock.calls[1]![1].method).toBeUndefined();
       forgetExecution(wallet, executionId);
       fetch.mockResolvedValueOnce(
         new Response(
@@ -361,31 +339,30 @@ describe("phase D trading", () => {
       await waitFor(() => expect(screen.getByText(/Buying is disabled/)).toBeInTheDocument());
       expect(createQuote).not.toHaveBeenCalled();
       cleanup();
-      const position = {
-        chainId: 4663,
-        address: wallet,
-        token: tokenAddress,
-        decimals: 2,
-        quantityAtomic: "123",
-        quantityComplete: true,
-        costUsd: null,
-        realizedPnlUsd: null,
-        updatedAt: 1,
-      } as WalletPosition;
+      const held: AccountSummary = {
+        ...account,
+        positions: [
+          {
+            tokenAddress,
+            symbol: "MEME",
+            available: "1.23",
+            frozen: "0.5",
+            costUsd: null,
+            valueUsd: null,
+          },
+        ],
+      };
       render(
         <TradingPanel
           token={token}
-          account={account}
+          account={held}
           walletAddress={wallet}
-          position={position}
           onConnect={vi.fn()}
           onAccountRefresh={vi.fn()}
           quickRequest={{ id: "sell", side: "SELL" }}
         />,
       );
-      await waitFor(() =>
-        expect(screen.getByText(/Wallet balance: 1.23 MEME/)).toBeInTheDocument(),
-      );
+      await waitFor(() => expect(screen.getByText(/Your balance: 1.23 MEME/)).toBeInTheDocument());
       expect(createQuote).not.toHaveBeenCalled();
       cleanup();
       render(
@@ -401,7 +378,7 @@ describe("phase D trading", () => {
       await waitFor(() => expect(screen.getByLabelText("Trade amount")).toHaveValue(""));
       expect(createQuote).not.toHaveBeenCalled();
       cleanup();
-      vi.mocked(walletApi.positions).mockResolvedValue({ items: [position], nextCursor: null });
+      vi.mocked(memeApi.getAccount).mockResolvedValue(held);
       vi.spyOn(memeApi, "getAccountTransactions").mockResolvedValue({
         items: [
           {
@@ -418,7 +395,7 @@ describe("phase D trading", () => {
         ],
       });
       render(<Portfolio walletAddress={wallet} onSell={vi.fn()} />);
-      await waitFor(() => expect(screen.getByText("Cost unknown")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("Selling 0.5")).toBeInTheDocument());
       fireEvent.click(screen.getByRole("tab", { name: "Order history" }));
       expect(screen.getByText("Receipt rejected")).toBeInTheDocument();
       expect(screen.queryByText("999 MEME")).toBeNull();
@@ -453,7 +430,6 @@ it("quote errors show short states, preserve codes in title and keep buying disa
       "Market data is syncing. Try again shortly",
     ],
     ["MEME_UNAUTHORIZED", "Unauthorized", "Connect wallet to continue"],
-    ["OTHER_LOGIN", "Privy login required", "Connect wallet to continue"],
     ["UNKNOWN_ERROR", "Unexpected service failure", "Unexpected service failure"],
   ]) {
     vi.spyOn(memeApi, "createQuote").mockRejectedValue(new ApiError(code, message, 409));

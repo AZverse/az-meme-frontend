@@ -15,7 +15,6 @@ import {
   pollTransactionUntilTerminal,
 } from "./transaction-tracker";
 import type { AccountSummary, AccountTransaction, Token } from "./types";
-import type { WalletPosition } from "./wallet-types";
 
 export interface QuickTradeRequest {
   id: string;
@@ -26,8 +25,6 @@ export interface TradingPanelProps {
   token: Token;
   account: AccountSummary | null;
   walletAddress?: string;
-  /** This token's position from the wallet's full position list; null when absent or not loaded. */
-  position?: WalletPosition | null;
   onConnect?: () => Promise<boolean>;
   onAccountRefresh: () => void;
   quickRequest?: QuickTradeRequest | null;
@@ -48,7 +45,6 @@ function TradingForm({
   token,
   account,
   walletAddress,
-  position,
   onConnect,
   onAccountRefresh,
   quickRequest,
@@ -63,10 +59,12 @@ function TradingForm({
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | Error | null>(null);
   const [approval, setApproval] = useState<ApprovalRequired | null>(null);
-  const ownBalance =
-    position?.quantityComplete && position.quantityAtomic !== null
-      ? formatUnits(BigInt(position.quantityAtomic), position.decimals)
-      : null;
+  // The backend ledger is the user's only holding; absent means nothing held.
+  const ownBalance = account
+    ? (account.positions.find(
+        (held) => held.tokenAddress.toLowerCase() === token.tokenAddress.toLowerCase(),
+      )?.available ?? "0")
+    : null;
   const [pendingId, setPendingId] = useState(() =>
     walletAddress ? pendingExecutionId(walletAddress) : null,
   );
@@ -289,15 +287,13 @@ function TradingForm({
 
   const errorMessage = error instanceof Error ? error.message : error;
   const errorCode = error instanceof ApiError ? error.code : undefined;
-  const quoteStatus =
-    (
-      {
-        MEME_REFERENCE_UNAVAILABLE: "Not enough liquidity to quote",
-        MEME_LOCAL_STATE_UNAVAILABLE: "Market data is syncing. Try again shortly",
-        MEME_UNAUTHORIZED: "Connect wallet to continue",
-      } as Record<string, string>
-    )[errorCode ?? ""] ??
-    (/Privy login required/i.test(errorMessage ?? "") ? "Connect wallet to continue" : undefined);
+  const quoteStatus = (
+    {
+      MEME_REFERENCE_UNAVAILABLE: "Not enough liquidity to quote",
+      MEME_LOCAL_STATE_UNAVAILABLE: "Market data is syncing. Try again shortly",
+      MEME_UNAUTHORIZED: "Connect wallet to continue",
+    } as Record<string, string>
+  )[errorCode ?? ""];
   const invalid = invalidReason(side, amount);
   const expired = quote !== null && quote.expiresAt <= now;
   const amountUnit = side === "BUY" ? "USDG" : symbol;
@@ -348,7 +344,7 @@ function TradingForm({
       </p>
       {side === "SELL" && (
         <p className="trade-wallet-balance">
-          Wallet balance: {ownBalance ?? "—"} {symbol}
+          Your balance: {ownBalance ?? "—"} {symbol}
         </p>
       )}
       <div className="trade-amount-control">

@@ -1,11 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { formatUnits } from "viem";
+import { useEffect, useState } from "react";
 import { memeApi } from "./api";
-import { amount, price, compactMoney, money, safeUrl, shortAddress } from "./display";
+import { amount, price, money, safeUrl, shortAddress } from "./display";
 import { forgetExecution, pendingExecutionId } from "./transaction-tracker";
-import { walletApi } from "./wallet-api";
-import type { WalletPosition } from "./wallet-types";
-import type { AccountTransaction } from "./types";
+import type { AccountSummary, AccountTransaction } from "./types";
 
 export interface PortfolioProps {
   walletAddress?: string;
@@ -42,27 +39,21 @@ function PortfolioAccount({
   tokenFilter,
 }: PortfolioProps & { walletAddress: string }) {
   const [tab, setTab] = useState<"positions" | "orders">("positions");
-  const [positions, setPositions] = useState<WalletPosition[] | null>(null);
+  const [positions, setPositions] = useState<AccountSummary["positions"] | null>(null);
   const [orderFilter, setOrderFilter] = useState<"ALL" | "CONFIRMED" | "FAILED">("ALL");
   const [orders, setOrders] = useState<AccountTransaction[] | null>(null);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [positionError, setPositionError] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
-  const [paging, setPaging] = useState(false);
   const [shareText, setShareText] = useState<string | null>(null);
-  const controllerRef = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    controllerRef.current = controller;
     setPositionError(null);
     setOrderError(null);
-    void walletApi
-      .positions(walletAddress, undefined, controller.signal)
-      .then((page) => {
-        if (!controller.signal.aborted) {
-          setPositions(page.items);
-          setCursor(page.nextCursor);
-        }
+    // Users hold nothing on chain; positions are the backend ledger for this login.
+    void memeApi
+      .getAccount(controller.signal)
+      .then((summary) => {
+        if (!controller.signal.aborted) setPositions(summary.positions);
       })
       .catch((cause) => {
         if (!controller.signal.aborted)
@@ -101,27 +92,8 @@ function PortfolioAccount({
     };
   }, [walletAddress, refreshKey, tokenFilter]);
 
-  function loadMore() {
-    if (!cursor || paging) return;
-    const signal = controllerRef.current!.signal;
-    setPaging(true);
-    void walletApi
-      .positions(walletAddress, cursor, signal)
-      .then((page) => {
-        if (signal.aborted) return;
-        setPositions((previous) => [...(previous ?? []), ...page.items]);
-        setCursor(page.nextCursor);
-      })
-      .catch((cause) => {
-        if (!signal.aborted)
-          setPositionError(cause instanceof Error ? cause.message : "Positions unavailable");
-      })
-      .finally(() => {
-        if (!signal.aborted) setPaging(false);
-      });
-  }
   const visiblePositions = positions?.filter(
-    (position) => !tokenFilter || position.token.toLowerCase() === tokenFilter.toLowerCase(),
+    (position) => !tokenFilter || position.tokenAddress.toLowerCase() === tokenFilter.toLowerCase(),
   );
   const visibleOrders = orders?.filter(
     (order) => orderFilter === "ALL" || order.status === orderFilter,
@@ -155,8 +127,6 @@ function PortfolioAccount({
                   <tr>
                     <th>Token</th>
                     <th>Amount</th>
-                    <th>Avg entry MC</th>
-                    <th>Now MC</th>
                     <th>Value</th>
                     <th>PnL</th>
                     <th />
@@ -164,54 +134,36 @@ function PortfolioAccount({
                 </thead>
                 <tbody>
                   {visiblePositions.map((position) => {
-                    const quantity =
-                      position.quantityAtomic === null
-                        ? null
-                        : formatUnits(BigInt(position.quantityAtomic), position.decimals);
-                    const owned =
-                      position.quantityComplete &&
-                      position.quantityAtomic !== null &&
-                      BigInt(position.quantityAtomic) > 0n;
+                    const owned = Number(position.available) > 0;
                     return (
-                      <tr key={position.token}>
+                      <tr key={position.tokenAddress}>
                         <td>
                           <button
                             className="portfolio-token"
-                            title={position.token}
-                            onClick={() => onToken?.(position.token)}
+                            title={position.tokenAddress}
+                            onClick={() => onToken?.(position.tokenAddress)}
                           >
-                            {safeUrl(position.logo) && (
-                              <img
-                                src={safeUrl(position.logo)}
-                                alt=""
-                                onError={(event) => {
-                                  event.currentTarget.style.display = "none";
-                                }}
-                              />
-                            )}
-                            <span>
-                              {position.symbol || position.name || shortAddress(position.token)}
-                            </span>
+                            <span>{position.symbol || shortAddress(position.tokenAddress)}</span>
                           </button>
                         </td>
-                        <td title={quantity ?? "Amount unknown"}>
-                          {amount(quantity)}
-                          {!position.quantityComplete && <small>Partial amount</small>}
+                        <td title={position.available}>
+                          {amount(position.available)}
+                          {position.frozen && Number(position.frozen) > 0 && (
+                            <small>Selling {amount(position.frozen)}</small>
+                          )}
                         </td>
-                        <td>{compactMoney(position.averageEntryMarketCapUsd)}</td>
-                        <td>{compactMoney(position.currentMarketCapUsd)}</td>
                         <td>{money(position.valueUsd)}</td>
                         <td>
-                          {money(position.unrealizedPnlUsd)}
-                          {position.costUsd === null && <small>Cost unknown</small>}
-                          {position.realizedPnlUsd !== null && (
-                            <small>Realized {money(position.realizedPnlUsd)}</small>
+                          {money(
+                            position.valueUsd != null && position.costUsd != null
+                              ? Number(position.valueUsd) - Number(position.costUsd)
+                              : null,
                           )}
                         </td>
                         <td>
                           <button
                             disabled={!owned}
-                            onClick={() => onSell(position.token)}
+                            onClick={() => onSell(position.tokenAddress)}
                             className="portfolio-sell"
                           >
                             Sell
@@ -220,7 +172,7 @@ function PortfolioAccount({
                             className="portfolio-share"
                             onClick={() => {
                               setShareText(
-                                `Token ${position.token}\nAmount: ${quantity ?? "unknown"}${position.quantityComplete ? "" : " (partial)"}\nValue: ${money(position.valueUsd)}\nUnrealized PnL: ${money(position.unrealizedPnlUsd)}\nUpdated: ${new Date(position.updatedAt).toLocaleString()}\n${window.location.origin}${window.location.pathname}#token/${position.token}`,
+                                `Token ${position.tokenAddress}\nAmount: ${position.available}\nValue: ${money(position.valueUsd)}\n${window.location.origin}${window.location.pathname}#token/${position.tokenAddress}`,
                               );
                             }}
                           >
@@ -233,11 +185,6 @@ function PortfolioAccount({
                 </tbody>
               </table>
             </div>
-          )}
-          {cursor && (
-            <button onClick={loadMore} disabled={paging}>
-              {paging ? "Loading…" : "Load more positions"}
-            </button>
           )}
         </>
       ) : (

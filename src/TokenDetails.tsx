@@ -59,7 +59,8 @@ function socialUrl(raw: string | null | undefined, kind: string): string | null 
 export function buildTradeMarkers(
   trades: Pick<Trade, "t" | "side" | "txHash" | "wallets">[],
   interval: Interval,
-  walletAddress: string | null | undefined,
+  /** Chain traders are treasury operators, so "My" matches this user's own order txHashes. */
+  myTxHashes: ReadonlySet<string>,
   filters: { smart: boolean; kol: boolean; mine: boolean },
 ): ChartTradeMarker[] {
   return trades.flatMap((trade) => {
@@ -68,9 +69,8 @@ export function buildTradeMarkers(
       if (wallet.labelSource !== "LOCAL_MANUAL") continue;
       if (filters.smart && wallet.labels.includes("SMART_MONEY")) labels.add("Smart");
       if (filters.kol && wallet.labels.includes("KOL")) labels.add("KOL");
-      if (filters.mine && walletAddress?.toLowerCase() === wallet.address.toLowerCase())
-        labels.add("My");
     }
+    if (filters.mine && myTxHashes.has(trade.txHash.toLowerCase())) labels.add("My");
     return labels.size
       ? [
           {
@@ -136,6 +136,7 @@ function TokenWorkspace({
   const [markerLoading, setMarkerLoading] = useState(false);
   const [markerError, setMarkerError] = useState<string | null>(null);
   const moreMarkersRef = useRef<() => void>(() => {});
+  const [myTxHashes, setMyTxHashes] = useState<ReadonlySet<string>>(new Set());
 
   const chartCache = useRef(new Map<Interval, CandleSnapshot>());
   const snapshotRef = useRef<CandleSnapshot | null>(null);
@@ -580,6 +581,31 @@ function TokenWorkspace({
     };
   }, [address, chainId, interval, retry]);
 
+  useEffect(() => {
+    if (!walletAddress) return;
+    const controller = new AbortController();
+    const load = () =>
+      void memeApi
+        .getAccountTransactions(controller.signal)
+        .then((page) => {
+          if (controller.signal.aborted) return;
+          setMyTxHashes(
+            new Set(
+              page.items
+                .filter((row) => row.tokenAddress.toLowerCase() === address)
+                .flatMap((row) => row.txHashes.map((hash) => hash.toLowerCase())),
+            ),
+          );
+        })
+        .catch(() => {});
+    load();
+    const timer = window.setInterval(load, 15_000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [address, walletAddress]);
+
   const earliestCandle = snapshot?.items[0]?.t;
   useEffect(() => {
     const candles = snapshotRef.current?.items;
@@ -730,8 +756,8 @@ function TokenWorkspace({
     for (const trade of trades)
       if (!grouped.has(`${trade.txHash}:${trade.side}`))
         grouped.set(`${trade.txHash}:${trade.side}`, trade);
-    return buildTradeMarkers([...grouped.values()], interval, walletAddress, markerFilters);
-  }, [trades, historicalMarkers, interval, walletAddress, markerFilters]);
+    return buildTradeMarkers([...grouped.values()], interval, myTxHashes, markerFilters);
+  }, [trades, historicalMarkers, interval, myTxHashes, markerFilters]);
   const holderRows = (holders?.items ?? []).filter(
     (holder) => !holderRisk || holder.riskLabels.includes(holderRisk),
   );

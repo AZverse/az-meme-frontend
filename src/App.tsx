@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Discover from "./Discover";
 import { memeApi } from "./api";
-import { walletApi } from "./wallet-api";
 import { UserStateProvider, useUserState } from "./user-state";
 import { ActivityFeed, ActivityRibbon } from "./ActivityFeed";
 import { WalletProfile } from "./WalletProfile";
@@ -12,7 +11,6 @@ import { Portfolio } from "./Portfolio";
 import { DesignIcon } from "./DesignIcon";
 import { amount, money, shortAddress } from "./display";
 import type { AccountSummary, Token } from "./types";
-import type { WalletPosition } from "./wallet-types";
 import "./styles.css";
 
 interface AppProps {
@@ -60,10 +58,6 @@ function Workspace({
   const [summary, setSummary] = useState<AccountSummary | null>(null);
   const [accountError, setAccountError] = useState<string>();
   const [revision, setRevision] = useState(0);
-  const [positions, setPositions] = useState<{
-    address: string;
-    byToken: ReadonlyMap<string, WalletPosition>;
-  } | null>(null);
   const [explorer, setExplorer] = useState(
     (import.meta.env.VITE_EXPLORER_BASE_URL as string | undefined) ||
       "https://robinhoodchain.blockscout.com",
@@ -170,38 +164,9 @@ function Workspace({
     },
     [openToken, connect],
   );
-  useEffect(() => {
-    if (!walletAddress) return;
-    const controller = new AbortController();
-    void (async () => {
-      const byToken = new Map<string, WalletPosition>();
-      let after: string | undefined;
-      do {
-        const page = await walletApi.positions(walletAddress, after, controller.signal);
-        for (const position of page.items) byToken.set(position.token.toLowerCase(), position);
-        after = page.nextCursor ?? undefined;
-      } while (after && !controller.signal.aborted);
-      if (!controller.signal.aborted) setPositions({ address: walletAddress, byToken });
-    })().catch(() => {
-      if (!controller.signal.aborted) setPositions(null);
-    });
-    return () => controller.abort();
-  }, [walletAddress, revision]);
-  const walletPositions =
-    walletAddress && positions?.address === walletAddress ? positions.byToken : null;
   const held = useMemo(
-    () =>
-      new Set(
-        [...(walletPositions?.values() ?? [])]
-          .filter(
-            (position) =>
-              position.quantityComplete &&
-              position.quantityAtomic !== null &&
-              BigInt(position.quantityAtomic) > 0n,
-          )
-          .map((position) => position.token.toLowerCase()),
-      ),
-    [walletPositions],
+    () => new Set(summary?.positions.map((position) => position.tokenAddress.toLowerCase())),
+    [summary],
   );
   const positionValue =
     summary && summary.positions.every((position) => position.valueUsd != null)
@@ -467,7 +432,6 @@ function Workspace({
                     token={token}
                     account={summary}
                     walletAddress={walletAddress}
-                    position={walletPositions?.get(token.tokenAddress.toLowerCase()) ?? null}
                     onConnect={connect}
                     quickBuyAmounts={user.quickBuyAmounts}
                     onAccountRefresh={refreshAccount}

@@ -50,10 +50,6 @@ export interface WalletProvider {
   on?: (event: string, listener: (...args: unknown[]) => void) => void;
   removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
 }
-let serverSignedTransactions = false;
-export function configureServerSignedTransactions(enabled: boolean): void {
-  serverSignedTransactions = enabled;
-}
 
 /** Reads fail fast; writes (prepare/order/execute) keep the longer window. */
 const readTimeoutMs = 5_000;
@@ -262,13 +258,12 @@ export async function authenticateWallet(address: string, provider: WalletProvid
 export const memeApi = {
   getConfig: () =>
     requestPublicMarket<{
-      serverSignedTransactions?: boolean;
       chainId: number;
       chainName: string;
       explorerBaseUrl: string;
       defaultSlippageBps: number;
       marketRefreshMs: { hot: number; new: number };
-      accountMode: "AZ_ACCOUNT" | "MAIN_ACCOUNT_POC";
+      accountMode: "AZ_ACCOUNT" | "TREASURY_OPERATORS";
       mainAccountAddress: string | null;
       settlementAssets: Asset[];
     }>("/sapi/v1/meme/config"),
@@ -394,6 +389,14 @@ export interface AccountTradeInput {
   feeConfigVersion: string;
 }
 
+const tradeRejectionMessages: Record<string, string> = {
+  MEME_OPERATOR_BUSY: "Trading is busy right now. Try again in a few seconds",
+  MEME_EXECUTION_IN_PROGRESS: "Your previous trade is still processing. Wait for it to finish",
+  MEME_POSITION_INSUFFICIENT: "Sell amount exceeds your available balance",
+  MEME_TREASURY_APPROVAL_PENDING: "This token is being enabled for selling. Try again in a minute",
+  MEME_TREASURY_APPROVAL_REQUIRED: "Buying is temporarily unavailable. Try again later",
+};
+
 async function executeAccountTrade(input: AccountTradeInput): Promise<AccountTransaction> {
   const executionSession = sessionToken;
   const pendingId = pendingExecutionId(input.walletAddress);
@@ -405,43 +408,19 @@ async function executeAccountTrade(input: AccountTradeInput): Promise<AccountTra
     forgetExecution(input.walletAddress, pendingId);
   }
   const { walletAddress, feeConfigVersion: _boundFeeVersion, ...body } = input;
-  // Save before POST: either prepare or submit can time out after reaching the server.
+  // Save before POST: the request can time out after the server has created the record.
   rememberExecution(walletAddress, input.clientExecutionId);
-  let recordCreated = false;
   try {
-    if (!serverSignedTransactions) {
-      const result = await request<AccountTransaction>("/sapi/v1/meme/account/transactions", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      rememberExecution(walletAddress, result.executionId);
-      if (result.status === "CONFIRMED" || result.status === "FAILED")
-        forgetExecution(walletAddress, result.executionId);
-      return result;
-    }
-    const prepared = await request<{ record: AccountTransaction; authorizationRequest: unknown }>(
-      "/sapi/v1/meme/privy/transactions",
-      { method: "POST", body: JSON.stringify(body) },
-    );
-    recordCreated = true;
-    rememberExecution(walletAddress, prepared.record.executionId);
-    if (sessionToken !== executionSession)
-      throw new Error("Wallet changed. Return to the original wallet to view trade status");
-    if (!prepared.authorizationRequest) {
-      if (prepared.record.status === "CONFIRMED" || prepared.record.status === "FAILED")
-        forgetExecution(walletAddress, prepared.record.executionId);
-      return prepared.record;
-    }
-    const submitted = await request<AccountTransaction>(
-      `/sapi/v1/meme/privy/transactions/${prepared.record.executionId}/submit`,
-      { method: "POST", body: JSON.stringify({}) },
-    );
-    if (submitted.status === "CONFIRMED" || submitted.status === "FAILED")
-      forgetExecution(walletAddress, submitted.executionId);
-    return submitted;
+    const result = await request<AccountTransaction>("/sapi/v1/meme/account/transactions", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    rememberExecution(walletAddress, result.executionId);
+    if (result.status === "CONFIRMED" || result.status === "FAILED")
+      forgetExecution(walletAddress, result.executionId);
+    return result;
   } catch (cause) {
     if (
-      !recordCreated &&
       cause instanceof ApiError &&
       ((typeof cause.details === "object" &&
         cause.details !== null &&
@@ -454,18 +433,21 @@ async function executeAccountTrade(input: AccountTradeInput): Promise<AccountTra
           "MEME_UNAUTHORIZED",
           "MEME_ATOMIC_BALANCE_INSUFFICIENT",
           "MEME_ATOMIC_SIMULATION_FAILED",
-          "MEME_TREASURY_APPROVAL_REQUIRED",
-          "MEME_PRIVY_WALLET_REQUIRED",
-          "MEME_PRIVY_SUBMISSION_REJECTED",
-          "MEME_MAIN_ACCOUNT_BUSY",
           "MEME_MAIN_ACCOUNT_EXECUTION_DISABLED",
-          "MEME_USER_SEND_REQUIRED",
+          ...Object.keys(tradeRejectionMessages),
         ].includes(cause.code))
     ) {
       // Only a known pre-create rejection retires this attempt. Once a record exists,
       // even an authentication error must leave its ID available for receipt recovery.
       forgetExecution(walletAddress, input.clientExecutionId);
     }
+    if (cause instanceof ApiError && cause.code in tradeRejectionMessages)
+      throw new ApiError(
+        cause.code,
+        tradeRejectionMessages[cause.code]!,
+        cause.status,
+        cause.details,
+      );
     throw cause;
   }
 }

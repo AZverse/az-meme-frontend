@@ -168,12 +168,13 @@ export interface Trade {
 export interface AccountSummary {
   fundingModel?: "SHARED_TREASURY";
   treasury?: { address: string; balances: AccountSummary["quoteBalances"] };
-  walletAssets?: { address: string; balances: AccountSummary["quoteBalances"] };
   quoteBalances: Array<{ asset: Asset; available: string; frozen: string }>;
   positions: Array<{
     tokenAddress: string;
     symbol: string;
     available: string;
+    /** Amount held by this user's in-flight sells. */
+    frozen?: string;
     costUsd: string | null;
     valueUsd: string | null;
   }>;

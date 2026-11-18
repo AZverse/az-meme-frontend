@@ -8,7 +8,12 @@ import { tokenApi } from "./token-api";
 vi.mock("./api", () => ({
   requestPublicMarket: vi.fn(),
   wsBaseUrl: "ws://localhost/stream",
-  memeApi: { getCandles: vi.fn(), getTrades: vi.fn(), getWsTicket: vi.fn() },
+  memeApi: {
+    getCandles: vi.fn(),
+    getTrades: vi.fn(),
+    getWsTicket: vi.fn(),
+    getAccountTransactions: vi.fn(),
+  },
 }));
 vi.mock("./CandleChart", () => ({
   CandleChart: ({
@@ -80,6 +85,7 @@ const prepareScenario1 = () => {
     items: [],
   });
   vi.mocked(memeApi.getTrades).mockResolvedValue({ items: trades, nextCursor: null });
+  vi.mocked(memeApi.getAccountTransactions).mockResolvedValue({ items: [] });
 };
 beforeEach(prepareScenario1);
 const cleanScenario2 = () => {
@@ -119,13 +125,19 @@ it("token-details: 5 related scenarios", async () => {
       expect(screen.getByRole("checkbox", { name: label })).toBeChecked();
     expect(screen.getByTestId("chart")).toHaveAttribute("data-markers", "1");
     expect(screen.getByRole("tab", { name: "Views" })).toBeVisible();
+    const filters = { smart: true, kol: true, mine: true };
+    // Chain traders are operators now; "My" comes only from this user's own order txHashes.
     expect(
-      buildTradeMarkers([{ ...trades[0]!, wallets: undefined }], "1m", b, {
-        smart: true,
-        kol: true,
-        mine: true,
-      }),
+      buildTradeMarkers([{ ...trades[0]!, wallets: undefined }], "1m", new Set(), filters),
     ).toHaveLength(0);
+    expect(
+      buildTradeMarkers(
+        [{ ...trades[0]!, wallets: undefined }],
+        "1m",
+        new Set([trades[0]!.txHash.toLowerCase()]),
+        filters,
+      )[0]?.label,
+    ).toMatch(/^My /);
   })();
   await cleanScenario2();
   await prepareScenario1();
