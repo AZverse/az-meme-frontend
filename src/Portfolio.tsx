@@ -72,11 +72,7 @@ function PortfolioAccount({
             (row) => row.executionId === saved && ["CONFIRMED", "FAILED"].includes(row.status),
           );
           if (resolved) forgetExecution(walletAddress, resolved.executionId);
-          if (
-            page.items.some(
-              (row) => row.status === "PENDING" || row.status === "SUBMISSION_UNKNOWN",
-            )
-          )
+          if (page.items.some((row) => row.status !== "CONFIRMED" && row.status !== "FAILED"))
             timer = setTimeout(loadOrders, 3000);
         })
         .catch((cause) => {

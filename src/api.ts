@@ -51,7 +51,7 @@ export interface WalletProvider {
   removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
 }
 
-/** Reads fail fast; writes (prepare/order/execute) keep the longer window. */
+/** Reads and unsigned estimates fail fast; writes (prepare/order/execute) keep the longer window. */
 const readTimeoutMs = 5_000;
 const writeTimeoutMs = 15_000;
 
@@ -163,7 +163,7 @@ async function send<T>(
         ),
       );
     },
-    readMethod ? readTimeoutMs : writeTimeoutMs,
+    readMethod || readOnlyRequest ? readTimeoutMs : writeTimeoutMs,
   );
   let rejectAbort!: () => void;
   const aborted = new Promise<never>((_resolve, reject) => {
@@ -317,7 +317,7 @@ export const memeApi = {
   executeMainAccountTrade: (input: AccountTradeInput) => executeAccountTrade(input),
   createQuote: (input: QuoteRequest, signal?: AbortSignal) => {
     const { feeConfigVersion: _boundFeeVersion, ...body } = input;
-    return send<QuoteDisplay | ApprovalRequired>(
+    return send<QuoteDisplay>(
       apiBaseUrl,
       "MEME",
       "/sapi/v1/meme/quotes",
@@ -328,48 +328,14 @@ export const memeApi = {
       },
       false,
       input.purpose === "ESTIMATE",
-    ).then((value): ValidQuote => {
-      if ("status" in value && value.status === "APPROVAL_REQUIRED")
-        throw new ApiError(
-          "MEME_APPROVAL_REQUIRED",
-          "Approval required. A new quote will be requested after approval",
-          200,
-          value,
-        );
-      return requireQuoteTerms(value as QuoteDisplay, input);
-    });
+    ).then((value): ValidQuote => requireQuoteTerms(value, input));
   },
-  approveTrade: (prerequisiteId: string) =>
-    request<{ status: "REQUOTE_REQUIRED"; transactions: string[] }>(
-      "/sapi/v1/meme/transactions/approval",
-      { method: "POST", body: JSON.stringify({ prerequisiteId }) },
-    ),
   getWsTicket: (signal?: AbortSignal, publicMarket = false) =>
     (publicMarket ? requestPublicMarket : request)<{ ticket: string; expiresAt: number }>(
       "/sapi/v1/meme/ws-ticket",
       { method: "POST", signal },
     ),
 };
-
-export interface ApprovalRequired {
-  status: "APPROVAL_REQUIRED";
-  prerequisiteId: string;
-  account: string;
-  prerequisites: Array<{ token: string; spender: string; amount: string }>;
-  expiresAt: number;
-}
-
-export function approvalDetails(cause: unknown): ApprovalRequired | null {
-  if (!(cause instanceof ApiError) || !cause.details || typeof cause.details !== "object")
-    return null;
-  const value = cause.details as ApprovalRequired;
-  return value.status === "APPROVAL_REQUIRED" &&
-    typeof value.prerequisiteId === "string" &&
-    Array.isArray(value.prerequisites) &&
-    value.prerequisites.length > 0
-    ? value
-    : null;
-}
 
 export const wsBaseUrl = resolveWsBaseUrl(
   import.meta.env.VITE_MEME_WS_URL as string | undefined,
@@ -435,6 +401,11 @@ async function executeAccountTrade(input: AccountTradeInput): Promise<AccountTra
           "MEME_ATOMIC_BALANCE_INSUFFICIENT",
           "MEME_ATOMIC_SIMULATION_FAILED",
           "MEME_MAIN_ACCOUNT_EXECUTION_DISABLED",
+          // The order entry throws these only before it stores the trade record.
+          "MEME_TRADING_DISABLED",
+          "MEME_QUOTE_EXPIRED",
+          "MEME_HONEYPOT",
+          "MEME_ATOMIC_PLAN_CHANGED",
           ...Object.keys(tradeRejectionMessages),
         ].includes(cause.code))
     ) {

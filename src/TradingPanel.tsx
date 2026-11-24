@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { price, percent } from "./display";
-import { ApiError, approvalDetails, memeApi, type ApprovalRequired } from "./api";
+import { ApiError, memeApi } from "./api";
 import {
   compareAmounts,
   preparationInput,
@@ -60,7 +60,6 @@ function TradingForm({
   const [busy, setBusy] = useState(false);
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | Error | null>(null);
-  const [approval, setApproval] = useState<ApprovalRequired | null>(null);
   // The backend ledger is the user's only holding; absent means nothing held.
   const ownBalance = account
     ? (account.positions.find(
@@ -140,7 +139,7 @@ function TradingForm({
   );
 
   useEffect(() => {
-    if (busy || approval) return;
+    if (busy) return;
     setQuote(null);
     if (!walletAddress || pendingId || invalidReason(side, amount)) return;
     const controller = new AbortController();
@@ -172,17 +171,7 @@ function TradingForm({
       controller.abort();
       setQuoting(false);
     };
-  }, [
-    side,
-    amount,
-    walletAddress,
-    busy,
-    approval,
-    pendingId,
-    token.tokenAddress,
-    invalidReason,
-    quoteRetry,
-  ]);
+  }, [side, amount, walletAddress, busy, pendingId, token.tokenAddress, invalidReason, quoteRetry]);
 
   useEffect(() => {
     if (!quote) return;
@@ -202,7 +191,6 @@ function TradingForm({
       busyRef.current = true;
       setBusy(true);
       setError(null);
-      setApproval(null);
       const signal = active.current.signal;
       const draft: QuoteRequest = {
         side: tradeSide,
@@ -248,7 +236,6 @@ function TradingForm({
         callbacks.current.onExecutionChange?.();
       } catch (cause) {
         if (signal.aborted) return;
-        setApproval(approvalDetails(cause));
         setError(cause instanceof Error ? cause.message : String(cause));
         setPendingId(pendingExecutionId(walletAddress));
       } finally {
@@ -263,30 +250,9 @@ function TradingForm({
     if (!quickRequest || lastQuick.current === quickRequest.id) return;
     lastQuick.current = quickRequest.id;
     setSide(quickRequest.side);
-    setApproval(null);
     setAmount(quickRequest.amountIn ?? "");
     onQuickRequestConsumed?.(quickRequest.id);
   }, [quickRequest, onQuickRequestConsumed]);
-
-  async function approve() {
-    if (!approval || busyRef.current || approval.expiresAt <= Date.now()) return;
-    busyRef.current = true;
-    setBusy(true);
-    setError(null);
-    try {
-      await memeApi.approveTrade(approval.prerequisiteId);
-      if (active.current.signal.aborted) return;
-      setApproval(null);
-      setQuote(null);
-      setError("Approval complete. Review the amount and trade again");
-    } catch (cause) {
-      if (!active.current.signal.aborted)
-        setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      busyRef.current = false;
-      if (!active.current.signal.aborted) setBusy(false);
-    }
-  }
 
   const errorMessage = error instanceof Error ? error.message : error;
   const errorCode = error instanceof ApiError ? error.code : undefined;
@@ -320,7 +286,6 @@ function TradingForm({
           aria-selected={side === "BUY"}
           onClick={() => {
             setSide("BUY");
-            setApproval(null);
             setAmount(quickBuyAmounts[0] ?? "");
             setError(null);
           }}
@@ -333,7 +298,6 @@ function TradingForm({
           aria-selected={side === "SELL"}
           onClick={() => {
             setSide("SELL");
-            setApproval(null);
             setAmount("");
             setError(null);
           }}
@@ -359,7 +323,6 @@ function TradingForm({
           disabled={busy || Boolean(pendingId)}
           onChange={(e) => {
             setAmount(e.target.value);
-            setApproval(null);
             setError(null);
           }}
         />
@@ -370,7 +333,6 @@ function TradingForm({
           onClick={() => {
             if (maxAmount) {
               setAmount(maxAmount);
-              setApproval(null);
               setError(null);
             }
           }}
@@ -388,7 +350,6 @@ function TradingForm({
               disabled={busy || Boolean(pendingId)}
               onClick={() => {
                 setAmount(value);
-                setApproval(null);
                 setError(null);
               }}
             >
@@ -405,9 +366,11 @@ function TradingForm({
               disabled={!ownBalance || busy || Boolean(pendingId)}
               onClick={() => {
                 const [whole, fraction = ""] = ownBalance!.split(".");
-                const digits = (BigInt(whole + fraction) * BigInt(pct)) / 100n;
-                setApproval(null);
-                setAmount(formatUnits(digits, fraction.length));
+                // The balance text drops trailing zeros, so its length understates the precision.
+                const precision = Math.max(fraction.length, token.decimals ?? 0);
+                const digits =
+                  (BigInt(whole + fraction.padEnd(precision, "0")) * BigInt(pct)) / 100n;
+                setAmount(formatUnits(digits, precision));
               }}
             >
               {pct}%
@@ -473,10 +436,7 @@ function TradingForm({
         <button
           type="button"
           className="trade-refresh-button"
-          onClick={() => {
-            setApproval(null);
-            setQuoteRetry((value) => value + 1);
-          }}
+          onClick={() => setQuoteRetry((value) => value + 1)}
           disabled={quoting}
         >
           Refresh quote
@@ -513,16 +473,6 @@ function TradingForm({
           }}
         >
           Connect wallet
-        </button>
-      ) : approval ? (
-        <button
-          className="primary"
-          disabled={busy || approval.expiresAt <= Date.now()}
-          onClick={() => {
-            void approve();
-          }}
-        >
-          Approve {symbol}
         </button>
       ) : (
         <button

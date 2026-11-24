@@ -31,6 +31,8 @@ interface Props {
   children?: ReactNode;
   onSell?: (address: string) => void;
   explorerBaseUrl?: string;
+  /** Changes when the account was refreshed, e.g. after a trade settled. */
+  accountRevision?: number;
 }
 const EMPTY_FOLLOWS: readonly string[] = [];
 const amount = (value: string | number | null | undefined, unit = "") =>
@@ -102,6 +104,7 @@ function TokenWorkspace({
   children,
   onSell,
   explorerBaseUrl,
+  accountRevision,
 }: Props) {
   const address = initial.tokenAddress.toLowerCase();
   const chainId = initial.chainId;
@@ -660,6 +663,9 @@ function TokenWorkspace({
     return () => controller.abort();
   }, [address, chainId, earliestCandle, interval, retry]);
 
+  // Only the FOLLOWING list depends on who is followed. The parent rebuilds the array on every
+  // price push, so compare its contents instead of its identity.
+  const followsKey = holderScope === "FOLLOWING" ? [...follows].sort().join(",") : "";
   useEffect(() => {
     if (tab !== "holders") return;
     const controller = new AbortController();
@@ -697,7 +703,7 @@ function TokenWorkspace({
     return () => {
       controller.abort();
     };
-  }, [address, chainId, tab, holdersRetry, holderScope, walletAddress, follows]);
+  }, [address, chainId, tab, holdersRetry, holderScope, walletAddress, followsKey]);
   const moreHolders = () => {
     const cursor = holders?.nextCursor,
       controller = holderController.current;
@@ -975,6 +981,7 @@ function TokenWorkspace({
                   tokenFilter={address}
                   explorerBaseUrl={explorerBaseUrl}
                   onSell={onSell ?? (() => {})}
+                  refreshKey={accountRevision}
                 />
               </div>
             ) : tab === "views" ? (

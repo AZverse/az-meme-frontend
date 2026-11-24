@@ -43,6 +43,8 @@ export default function Discover({
   const [selectedAmount, setSelectedAmount] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
+  // Price pushes received while a list request is in flight; its older snapshot must not undo them.
+  const liveDuringLoad = useRef<Map<string, Token> | null>(null);
   const frozen = scrolled || hover;
   const quickAmount =
     selectedAmount && user.quickBuyAmounts.includes(selectedAmount)
@@ -82,19 +84,36 @@ export default function Discover({
         return;
       }
       running = true;
+      const live = new Map<string, Token>();
+      liveDuringLoad.current = live;
       try {
         const params = new URLSearchParams({ tab, interval: period, limit: "100" });
         if (search) params.set("query", search);
-        const page = await (tab === "watchlist" ? request : requestPublicMarket)<{
-          items: Token[];
-          stale: boolean;
-          nextCursor: string | null;
-        }>(`/sapi/v1/meme/markets?${params}`, { signal: controller.signal });
+        const read = () =>
+          (tab === "watchlist" ? request : requestPublicMarket)<{
+            items: Token[];
+            stale: boolean;
+            nextCursor: string | null;
+          }>(`/sapi/v1/meme/markets?${params}`, { signal: controller.signal });
+        const page = await read();
+        // Only the watchlist is paged. Read every page so more than 100 saved tokens are shown.
+        while (tab === "watchlist" && page.nextCursor) {
+          params.set("after", page.nextCursor);
+          const next = await read();
+          page.items.push(...next.items);
+          page.stale ||= next.stale;
+          page.nextCursor = next.nextCursor;
+        }
         if (controller.signal.aborted) return;
-        setItems(
+        const rows =
           tab === "watchlist"
             ? page.items.filter((t) => user.watchlist.has(t.tokenAddress.toLowerCase()))
-            : page.items,
+            : page.items;
+        setItems(
+          rows.map((row) => {
+            const pushed = live.get(row.tokenAddress.toLowerCase());
+            return pushed ? mergeLiveToken(row, pushed) : row;
+          }),
         );
         setStale(page.stale);
         setError(undefined);
@@ -103,6 +122,7 @@ export default function Discover({
           setError(cause instanceof Error ? cause.message : "Markets unavailable");
       } finally {
         if (!controller.signal.aborted) setLoading(false);
+        if (liveDuringLoad.current === live) liveDuringLoad.current = null;
         running = false;
       }
     };
@@ -148,6 +168,12 @@ export default function Discover({
           const incoming = new Map(
             message.data.items.map((t) => [t.tokenAddress.toLowerCase(), t]),
           );
+          const loading = liveDuringLoad.current;
+          if (loading)
+            for (const [key, pushed] of incoming) {
+              const earlier = loading.get(key);
+              loading.set(key, earlier ? mergeLiveToken(earlier, pushed) : pushed);
+            }
           setItems((current) =>
             current.map((t) => {
               const updated = incoming.get(t.tokenAddress.toLowerCase());

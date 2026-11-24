@@ -52,6 +52,18 @@ it("pre-create simulation rejection permits a new quote/attempt, clearing only t
   });
   await expect(memeApi.executeMainAccountTrade(input)).rejects.toThrow();
   expect(pendingExecutionId(wallet)).toBe("another-attempt");
+  // Order-entry rejections thrown before the record is stored retire the attempt the same way.
+  for (const code of [
+    "MEME_TRADING_DISABLED",
+    "MEME_QUOTE_EXPIRED",
+    "MEME_HONEYPOT",
+    "MEME_ATOMIC_PLAN_CHANGED",
+  ]) {
+    localStorage.clear();
+    fetch.mockResolvedValueOnce(rejection(code));
+    await expect(memeApi.executeMainAccountTrade(input)).rejects.toMatchObject({ code });
+    expect(pendingExecutionId(wallet)).toBeNull();
+  }
 });
 it("unknown responses, 404 and post-create rejections keep the original ID for recovery", async () => {
   for (const failure of [

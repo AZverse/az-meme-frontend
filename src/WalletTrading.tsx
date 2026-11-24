@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import App from "./App";
 import {
   authenticateWallet,
@@ -14,11 +14,7 @@ declare global {
   }
 }
 
-export default function WalletTrading({
-  onConnection,
-}: {
-  onConnection?: (props: Partial<ComponentProps<typeof App>>) => void;
-}) {
+export default function WalletTrading() {
   const provider = typeof window === "undefined" ? undefined : window.ethereum;
   const [session, setSession] = useState<WalletSession | null>(null);
   const [pending, setPending] = useState(true);
@@ -113,24 +109,18 @@ export default function WalletTrading({
     };
   }, [provider]);
 
-  const props = useMemo<ComponentProps<typeof App>>(
-    () => ({
-      walletRequired: true,
-      walletAddress: session?.accountId,
-      accountIdentity: session?.userId,
-      connectionPending: pending,
-      connectionStatus: pending ? "Connecting browser wallet" : undefined,
-      connectionRetryable: Boolean(error),
-      connectionError: error,
-      onConnect: connect,
-      onLogout: () => {
+  return (
+    <App
+      walletAddress={session?.accountId}
+      accountIdentity={session?.userId}
+      connectionPending={pending}
+      connectionError={error}
+      onConnect={connect}
+      onLogout={() => {
         clearSessionToken();
         ++identityVersion.current;
         setSession(null);
-      },
-    }),
-    [session, pending, error, connect],
+      }}
+    />
   );
-  useEffect(() => onConnection?.(props), [onConnection, props]);
-  return onConnection ? null : <App {...props} />;
 }

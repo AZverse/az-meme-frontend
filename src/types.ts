@@ -10,6 +10,8 @@ export interface Token {
   tokenAddress: string;
   symbol: string | null;
   name: string | null;
+  /** Token precision as observed by the market data source; null or absent when unknown. */
+  decimals?: number | null;
   logo?: string | null;
   description?: string | null;
   website?: string | null;
@@ -276,7 +278,8 @@ export interface AccountTransaction {
   settlementAsset: Asset;
   amountIn: string;
   amountOut: string | null;
-  status: "PENDING" | "CONFIRMED" | "FAILED" | "SUBMISSION_UNKNOWN";
+  /** FREEZING: a buy stored before its funds are frozen; nothing is signed yet. */
+  status: "FREEZING" | "PENDING" | "CONFIRMED" | "FAILED" | "SUBMISSION_UNKNOWN";
   confirmedSteps?: Array<{ stepIndex: number; kind: string; txHash: string }>;
   txHashes: string[];
   errorMessage: string | null;

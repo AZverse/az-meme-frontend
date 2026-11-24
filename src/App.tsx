@@ -18,8 +18,6 @@ interface AppProps {
   walletAddress?: string;
   accountIdentity?: string;
   connectionPending?: boolean;
-  connectionStatus?: string;
-  connectionRetryable?: boolean;
   connectionError?: string;
   onConnect?: () => Promise<boolean>;
   onLogout?: () => void;
@@ -428,6 +426,7 @@ function Workspace({
                   onTokenUpdate={onTokenUpdate}
                   explorerBaseUrl={explorer}
                   onSell={(address) => trade(address, "SELL")}
+                  accountRevision={revision}
                 >
                   <TradingPanel
                     key={`${walletAddress ?? "guest"}:${token.tokenAddress}`}

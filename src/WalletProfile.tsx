@@ -268,8 +268,12 @@ function ProfileContent({
             {holdings.map((position) => {
               const incomplete = !position.quantityComplete || position.quantityAtomic === null;
               const quantity = displayedQuantity(position);
+              // Without the token's decimals the raw integer cannot be turned into a token quantity.
+              const decimalsUnknown = position.valuationReason === "DECIMALS_UNAVAILABLE";
               const exactQuantity =
-                quantity == null ? null : formatUnits(BigInt(quantity), position.decimals);
+                quantity == null || decimalsUnknown
+                  ? null
+                  : formatUnits(BigInt(quantity), position.decimals);
               const tokenName = position.symbol || position.name || shortAddress(position.token);
               const pnlPercent =
                 position.quantityComplete &&
@@ -330,14 +334,18 @@ function ProfileContent({
                         </details>
                       )}
                     </div>
-                    {incomplete && (
+                    {decimalsUnknown && quantity != null ? (
+                      <small title="Token decimals are unavailable; this is the raw on-chain integer, not a token quantity">
+                        Quantity precision unknown · {quantity} smallest units
+                      </small>
+                    ) : incomplete ? (
                       <small title="On-chain net movement; position attribution is incomplete">
                         {quantity != null
                           ? amount(formatUnits(BigInt(quantity), position.decimals))
                           : "—"}
                         {quantity != null && " observed net · incomplete"}
                       </small>
-                    )}
+                    ) : null}
                   </td>
                   <td
                     className="holding-value"

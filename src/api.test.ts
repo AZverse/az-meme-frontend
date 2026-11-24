@@ -32,7 +32,8 @@ it("unsigned estimate timeout does not claim a transaction may have been broadca
     .catch((cause) => {
       failure = cause;
     });
-  await vi.advanceTimersByTimeAsync(15_000);
+  // An estimate signs nothing, so it shares the 5s read deadline.
+  await vi.advanceTimersByTimeAsync(5_000);
   expect(failure).toMatchObject({ code: "MEME_REQUEST_TIMEOUT" });
   expect((failure as Error).message).not.toContain("broadcast");
   expect(fetch).toHaveBeenCalledTimes(1);
@@ -521,7 +522,7 @@ describe("bounded HTTP requests", () => {
   });
 });
 
-it("preserves structured approval identity from successful preparation without issuing an approval", async () => {
+it("refuses an old-format approval response as a quote without issuing an approval", async () => {
   const details = {
     status: "APPROVAL_REQUIRED",
     prerequisiteId: "test-id",
@@ -540,7 +541,7 @@ it("preserves structured approval identity from successful preparation without i
       slippageBps: 2000,
       purpose: "PREPARE_EXECUTION",
     }),
-  ).rejects.toMatchObject({ code: "MEME_APPROVAL_REQUIRED", status: 200, details });
+  ).rejects.toThrow("Quote is missing net output or minimum received; trading is unavailable");
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch.mock.calls[0][0]).toContain("/quotes");
 });

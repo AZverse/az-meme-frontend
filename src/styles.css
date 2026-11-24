@@ -155,15 +155,6 @@ small,
   background: #d4ffe6;
   color: #102719;
 }
-.app-header {
-  min-height: 76px;
-  padding: 16px 26px;
-  display: flex;
-  align-items: center;
-  gap: 32px;
-  border-bottom: 1px solid var(--border);
-  background: #0f1115;
-}
 .brand {
   display: flex;
   gap: 10px;
@@ -173,29 +164,6 @@ small,
   background: none !important;
   border: 0;
   padding: 0;
-}
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  background: var(--accent);
-  border-radius: 9px;
-  color: #171122;
-  font-size: 24px;
-}
-.app-header nav {
-  display: flex;
-  gap: 6px;
-}
-.app-header nav button {
-  background: transparent;
-  border-color: transparent;
-  color: var(--muted);
-}
-.app-header nav button[aria-current="page"] {
-  color: #fff;
-  background: #202530;
 }
 .account-nav {
   margin-left: auto;
@@ -458,7 +426,6 @@ small,
   margin: 2px;
 }
 .token-workspace,
-.token-layout,
 .detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;
@@ -599,12 +566,6 @@ small,
   font-size: 10px;
   margin-right: 5px;
 }
-.token-socials {
-  display: flex;
-  gap: 12px;
-  margin: 14px 0;
-  font-size: 12px;
-}
 .trading-panel {
   height: fit-content;
   position: sticky;
@@ -626,24 +587,20 @@ small,
   margin-top: 14px;
   padding: 13px;
 }
-.quote-details,
-.trade-details {
+.quote-details {
   font-size: 12px;
   margin: 18px 0;
 }
-.quote-details > div,
-.trade-details > div {
+.quote-details > div {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   padding: 7px 0;
 }
-.quote-details dt,
-.trade-details dt {
+.quote-details dt {
   color: var(--muted);
 }
-.quote-details dd,
-.trade-details dd {
+.quote-details dd {
   margin: 0;
   text-align: right;
   overflow-wrap: anywhere;
@@ -704,13 +661,9 @@ small,
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
 }
-.settings-panel label,
 .settings-form label {
   display: grid;
   gap: 8px;
-}
-.settings-panel input {
-  margin: 10px 0;
 }
 .settings-list {
   list-style: none;
@@ -748,17 +701,7 @@ small,
   font-size: 11px;
 }
 @media (max-width: 1100px) {
-  .app-header {
-    gap: 15px;
-    flex-wrap: wrap;
-  }
-  .app-header nav {
-    order: 3;
-    flex-basis: 100%;
-    overflow: auto;
-  }
   .token-workspace,
-  .token-layout,
   .detail-layout {
     grid-template-columns: minmax(0, 1fr) 300px;
   }
@@ -772,9 +715,6 @@ small,
 }
 @media (max-width: 780px) {
   .app-shell main {
-    padding: 14px;
-  }
-  .app-header {
     padding: 14px;
   }
   .panel {
@@ -793,7 +733,6 @@ small,
     margin-left: 0;
   }
   .token-workspace,
-  .token-layout,
   .detail-layout {
     display: flex;
     flex-direction: column;
@@ -813,10 +752,6 @@ small,
     height: 300px;
   }
   .data-table {
-    font-size: 12px;
-  }
-  .app-header nav button {
-    padding: 8px;
     font-size: 12px;
   }
   .account-nav {
@@ -1299,13 +1234,6 @@ textarea {
   background: #30d66d;
   color: #07160d;
 }
-.app-header {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-  padding: 18px 20px 0;
-  background: linear-gradient(110deg, #100d1b, #08070c 65%);
-}
 .brand {
   display: flex;
   flex-wrap: wrap;
@@ -1329,22 +1257,6 @@ textarea {
   border-radius: 6px;
   background: #15141c;
   padding: 5px 8px;
-}
-.app-header nav {
-  grid-row: 2;
-  grid-column: 1 / -1;
-  gap: 24px;
-}
-.app-header nav button {
-  border-radius: 0;
-  padding: 10px 0;
-  border: 0;
-  border-bottom: 2px solid transparent;
-}
-.app-header nav button[aria-current="page"] {
-  background: none;
-  border-bottom-color: #8b5cf6;
-  color: #f6f4fc;
 }
 .account-nav {
   grid-column: 2;
@@ -1779,13 +1691,6 @@ textarea {
   }
 }
 @media (max-width: 780px) {
-  .app-header {
-    padding: 14px 12px 0;
-    gap: 10px;
-  }
-  .app-header nav {
-    gap: 18px;
-  }
   .brand {
     font-size: 21px;
   }
@@ -1875,23 +1780,12 @@ textarea {
 }
 
 /* Memebot desktop typography and market rows. */
-.app-header {
-  padding: 12px 20px 0;
-  gap: 6px;
-}
 .brand {
   font-size: 24px;
   gap: 5px 10px;
 }
 .brand small {
   font-size: 10px;
-}
-.app-header nav {
-  gap: 28px;
-}
-.app-header nav button {
-  font-size: 12px;
-  padding: 10px 0 12px;
 }
 .account-overview {
   gap: 18px;
@@ -2018,12 +1912,6 @@ textarea {
   font-size: 10px;
 }
 @media (max-width: 780px) {
-  .app-header {
-    padding: 12px 12px 0;
-  }
-  .app-header nav {
-    gap: 18px;
-  }
   .activity-ribbon {
     padding-inline: 12px;
   }
@@ -2572,13 +2460,6 @@ textarea {
   margin-left: 12px;
 }
 @media (min-width: 901px) {
-  .app-header {
-    grid-template-rows: 44px 44px;
-    padding-top: 6px;
-    gap: 6px;
-    min-height: 100px;
-    background: #08070c;
-  }
   .brand {
     align-self: center;
     align-items: center;

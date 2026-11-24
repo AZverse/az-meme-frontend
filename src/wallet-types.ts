@@ -39,6 +39,8 @@ export interface WalletPosition {
   quantityAtomic: string | null;
   observedNetAtomic: string;
   quantityComplete: boolean;
+  /** "DECIMALS_UNAVAILABLE": `decimals` is a placeholder 0 and the quantity is in raw smallest units. */
+  valuationReason?: string | null;
   costUsd: string | null;
   boughtAtomic: string;
   soldAtomic: string;
