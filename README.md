@@ -21,6 +21,10 @@ pnpm test
 pnpm build
 ```
 
+后端 `/config` 返回 `accountMode=TREASURY_OPERATORS` 时，报价、下单、持仓和资金都归 AZ 登录用户：连接钱包后，同一个钱包再签一次名登录 AZ（`/uaapi/user/web3/*`），拿到的 AZ 登录凭证用于这些接口，过期后会要求重新登录。Portfolio 下的 Funds 页直接调 meme-account 的用户接口（`/sapi/v1/meme-account/*`）：三币余额与冻结、买入额度，从现货 / U 本位合约转入，转出到现货 / U 本位合约，划转记录和账单。买入时可选用 USDT / USDC / USDG 付款，默认用余额最多的币；最小买入额取 `/config` 的 `minBuyAmountUsd`。见 [资金页](src/MemeFunds.tsx)。
+
+开发服务器的转发目标：`MEME_API_UPSTREAM`（`/sapi/v1/meme`，默认 `http://127.0.0.1:3000`）、`MEME_ACCOUNT_UPSTREAM`（`/sapi/v1/meme-account`，默认 `http://127.0.0.1:3016`）、`AZ_API_UPSTREAM`（`/uaapi`，默认 `https://app.az-qa.xyz`）。不走转发时可用 `VITE_MEME_ACCOUNT_BASE_URL`、`VITE_AZ_API_BASE_URL` 指定地址。
+
 开发地址默认为 `http://127.0.0.1:5173`。客户端公共配置为 `VITE_MEME_API_BASE_URL` 和 `VITE_MEME_WS_URL`；未配置时使用同源 REST/WS。真实连接配置放在 Git ignored 的本地 env 文件；密钥和服务端凭据不得进入前端环境变量。
 
 交易浏览器优先使用服务端公共配置的 `explorerBaseUrl`；不可用时使用 `VITE_EXPLORER_BASE_URL`，默认为 `https://robinhoodchain.blockscout.com`。交易链接遵循项目现有的 `<explorer>/tx/<txHash>` 格式；Robinhood Chain 官方网络配置见 https://docs.robinhood.com/chain/connecting/。
