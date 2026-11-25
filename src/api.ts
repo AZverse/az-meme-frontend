@@ -34,11 +34,15 @@ export function resolveWsBaseUrl(
 }
 
 const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_MEME_API_BASE_URL as string | undefined);
+const accountBaseUrl = (import.meta.env.VITE_MEME_ACCOUNT_BASE_URL as string | undefined) ?? "";
+const azBaseUrl = (import.meta.env.VITE_AZ_API_BASE_URL as string | undefined) ?? "";
 const sessionStorageKey = "az:meme:wallet-session";
-let sessionToken: string | null =
-  typeof window === "undefined" || !window.localStorage
-    ? null
-    : window.localStorage.getItem(sessionStorageKey);
+const azTokenStorageKey = "az:meme:az-token";
+const stored = (key: string) =>
+  typeof window === "undefined" || !window.localStorage ? null : window.localStorage.getItem(key);
+let sessionToken: string | null = stored(sessionStorageKey);
+/** Treasury mode: quotes, trades, account and meme-account funds belong to the AZ login. */
+let azToken: string | null = stored(azTokenStorageKey);
 export interface SponsoredTransaction {
   from: string;
   to: string;
@@ -76,6 +80,24 @@ export function setSessionToken(token: string | null): void {
 
 export function clearSessionToken(): void {
   setSessionToken(null);
+  setAzToken(null);
+}
+
+export function setAzToken(token: string | null): void {
+  azToken = token;
+  if (typeof window !== "undefined" && window.localStorage) {
+    if (token) window.localStorage.setItem(azTokenStorageKey, token);
+    else window.localStorage.removeItem(azTokenStorageKey);
+  }
+}
+
+export function hasAzToken(): boolean {
+  return azToken !== null;
+}
+
+/** The AZ login when present; other modes keep using the wallet session. */
+function azAuthorization(): HeadersInit | undefined {
+  return azToken ? { authorization: `Bearer ${azToken}` } : undefined;
 }
 
 async function readEnvelope<T>(response: Response, prefix: "MEME" | "AZ"): Promise<T> {
@@ -255,6 +277,169 @@ export async function authenticateWallet(address: string, provider: WalletProvid
   setSessionToken(verified.token);
 }
 
+/** AZ envelope: `{ code: 200, data, msg }`. */
+async function azPost<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${azBaseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "api-version": "4", device: "web" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(writeTimeoutMs),
+    });
+  } catch {
+    throw new ApiError("AZ_REQUEST_FAILED", "AZ login is unreachable. Retry shortly", 0);
+  }
+  const payload = (await response.json().catch(() => null)) as {
+    code?: number;
+    data?: T;
+    msg?: string;
+    error?: string;
+  } | null;
+  if (!response.ok || payload?.code !== 200 || payload.data === undefined)
+    throw new ApiError(
+      "AZ_LOGIN_FAILED",
+      `AZ login failed: ${payload?.msg ?? payload?.error ?? `HTTP ${response.status}`}`,
+      response.status,
+    );
+  return payload.data;
+}
+
+/** Same wallet, AZ web3 login: the returned access token is the AZ JWT treasury mode requires. */
+export async function authenticateAz(address: string, provider: WalletProvider): Promise<void> {
+  const nonce = await azPost<{ message: string; nonce: string }>("/uaapi/user/web3/get-nonce", {
+    sourceAddr: address,
+    type: "LOGIN",
+    chainType: "ETHEREUM",
+  });
+  const signature = await provider.request({
+    method: "personal_sign",
+    params: [`${nonce.message}\nnonce: ${nonce.nonce}.`, address],
+  });
+  if (typeof signature !== "string")
+    throw new ApiError("AZ_WALLET_SIGNATURE_INVALID", "Invalid wallet signature", 400);
+  const login = await azPost<{ accessToken: string }>("/uaapi/user/web3/login", {
+    signature,
+    sourceAddr: address,
+    chainType: "ETHEREUM",
+    chainId: 1,
+    loginType: "WALLET",
+  });
+  setAzToken(login.accessToken);
+}
+
+/** An expired AZ token is dropped so the page asks for a new AZ login instead of looping. */
+async function withAz<T>(call: Promise<T>): Promise<T> {
+  const token = azToken;
+  try {
+    return await call;
+  } catch (cause) {
+    if (token && token === azToken && cause instanceof ApiError && cause.status === 401)
+      setAzToken(null);
+    throw cause;
+  }
+}
+
+function requestAz<T>(path: string, init?: RequestInit, readOnlyRequest = false): Promise<T> {
+  return withAz(
+    send<T>(
+      apiBaseUrl,
+      "MEME",
+      path,
+      { ...init, headers: { ...azAuthorization(), ...init?.headers } },
+      false,
+      readOnlyRequest,
+    ),
+  );
+}
+
+export type LedgerCurrency = "USDC" | "USDG" | "USDT";
+export type PeerAccountType = "SPOT" | "FUTURES_U";
+export interface MemeBalance {
+  currency: LedgerCurrency;
+  total: string;
+  available: string;
+  frozen: string;
+  tradeFrozen: string;
+  withdrawFrozen: string;
+}
+export interface MemeQuota {
+  enabled: boolean;
+  limitUsd: string;
+  remainingBuyUsd: string;
+  netBoughtUsd: string;
+  inFlightBuyUsd: string;
+}
+export interface MemeTransfer {
+  transferId: string;
+  requestId: string;
+  direction: "DEPOSIT" | "WITHDRAW";
+  peerAccountType: PeerAccountType;
+  currency: LedgerCurrency;
+  amount: string;
+  status: string;
+  failureCode: string | null;
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+}
+export interface MemeBill {
+  billId: string;
+  currency: LedgerCurrency;
+  billType: string;
+  side: 1 | 2;
+  amount: string;
+  beforeBalance: string;
+  afterBalance: string;
+  refType: string;
+  refId: string;
+  remark: string | null;
+  createdAt: number;
+}
+
+/** meme-account user API: every call is a POST carrying the AZ login. */
+function accountPost<T>(path: string, body: unknown, readOnlyRequest: boolean): Promise<T> {
+  return withAz(
+    send<T>(
+      accountBaseUrl,
+      "MEME",
+      `/sapi/v1/meme-account${path}`,
+      { method: "POST", body: JSON.stringify(body), headers: azAuthorization() },
+      false,
+      readOnlyRequest,
+    ),
+  );
+}
+
+export const memeAccountApi = {
+  balances: () =>
+    accountPost<{ userId: string; balances: MemeBalance[]; quota: MemeQuota }>(
+      "/balances",
+      {},
+      true,
+    ),
+  deposit: (input: {
+    requestId: string;
+    sourceAccountType: PeerAccountType;
+    currency: LedgerCurrency;
+    amount: string;
+  }) => accountPost<MemeTransfer>("/transfers/deposit", input, false),
+  withdraw: (input: {
+    requestId: string;
+    targetAccountType: PeerAccountType;
+    currency: LedgerCurrency;
+    amount: string;
+  }) => accountPost<MemeTransfer>("/transfers/withdraw", input, false),
+  transfers: (limit = 20) =>
+    accountPost<{ items: MemeTransfer[]; nextCursor: string | null }>(
+      "/transfers/list",
+      { limit },
+      true,
+    ),
+  bills: (limit = 20) =>
+    accountPost<{ items: MemeBill[]; nextCursor: string | null }>("/bills/list", { limit }, true),
+};
+
 export const memeApi = {
   getConfig: () =>
     requestPublicMarket<{
@@ -265,6 +450,7 @@ export const memeApi = {
       marketRefreshMs: { hot: number; new: number };
       accountMode: "AZ_ACCOUNT" | "TREASURY_OPERATORS";
       tradingEnabled?: boolean;
+      minBuyAmountUsd?: string;
       mainAccountAddress: string | null;
       settlementAssets: Asset[];
     }>("/sapi/v1/meme/config"),
@@ -307,26 +493,23 @@ export const memeApi = {
     );
   },
   getAccount: (signal?: AbortSignal) =>
-    request<AccountSummary>("/sapi/v1/meme/account/summary", { signal }),
+    requestAz<AccountSummary>("/sapi/v1/meme/account/summary", { signal }),
   getAccountTransactions: (signal?: AbortSignal) =>
-    request<{ items: AccountTransaction[] }>("/sapi/v1/meme/account/transactions?limit=50", {
+    requestAz<{ items: AccountTransaction[] }>("/sapi/v1/meme/account/transactions?limit=50", {
       signal,
     }),
   getAccountTransaction: (executionId: string) =>
-    request<AccountTransaction>(`/sapi/v1/meme/account/transactions/${executionId}`),
+    requestAz<AccountTransaction>(`/sapi/v1/meme/account/transactions/${executionId}`),
   executeMainAccountTrade: (input: AccountTradeInput) => executeAccountTrade(input),
   createQuote: (input: QuoteRequest, signal?: AbortSignal) => {
     const { feeConfigVersion: _boundFeeVersion, ...body } = input;
-    return send<QuoteDisplay>(
-      apiBaseUrl,
-      "MEME",
+    return requestAz<QuoteDisplay>(
       "/sapi/v1/meme/quotes",
       {
         method: "POST",
         body: JSON.stringify(body),
         signal,
       },
-      false,
       input.purpose === "ESTIMATE",
     ).then((value): ValidQuote => requireQuoteTerms(value, input));
   },
@@ -354,6 +537,8 @@ export interface AccountTradeInput {
   amountIn: string;
   slippageBps: number;
   feeConfigVersion: string;
+  /** Ledger currency a BUY spends; the treasury itself always pays USDG on chain. */
+  spendCurrency?: LedgerCurrency;
 }
 
 const tradeRejectionMessages: Record<string, string> = {
@@ -378,7 +563,7 @@ async function executeAccountTrade(input: AccountTradeInput): Promise<AccountTra
   // Save before POST: the request can time out after the server has created the record.
   rememberExecution(walletAddress, input.clientExecutionId);
   try {
-    const result = await request<AccountTransaction>("/sapi/v1/meme/account/transactions", {
+    const result = await requestAz<AccountTransaction>("/sapi/v1/meme/account/transactions", {
       method: "POST",
       body: JSON.stringify(body),
     });

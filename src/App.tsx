@@ -61,6 +61,7 @@ function Workspace({
       "https://robinhoodchain.blockscout.com",
   );
   const [tradingEnabled, setTradingEnabled] = useState(true);
+  const [minBuyAmountUsd, setMinBuyAmountUsd] = useState<string>();
   const [quick, setQuick] = useState<{
     id: string;
     side: "BUY" | "SELL";
@@ -88,6 +89,7 @@ function Workspace({
       .then((config) => {
         if (active && config.explorerBaseUrl) setExplorer(config.explorerBaseUrl);
         if (active) setTradingEnabled(config.tradingEnabled !== false);
+        if (active) setMinBuyAmountUsd(config.minBuyAmountUsd);
       })
       .catch(() => {});
     return () => {
@@ -143,8 +145,16 @@ function Workspace({
     },
     [navigate],
   );
-  const connect = useCallback(() => onConnect?.() ?? Promise.resolve(false), [onConnect]);
   const refreshAccount = useCallback(() => setRevision((n) => n + 1), []);
+  // A repeat connect can add the AZ login to an existing wallet session; reload what it owns.
+  const connect = useCallback(
+    () =>
+      (onConnect?.() ?? Promise.resolve(false)).then((connected) => {
+        if (connected) refreshAccount();
+        return connected;
+      }),
+    [onConnect, refreshAccount],
+  );
   const onTokenUpdate = useCallback(
     (value: Token) =>
       setToken((current) =>
@@ -177,9 +187,10 @@ function Workspace({
       ? positionValue -
         summary.positions.reduce((total, position) => total + Number(position.costUsd), 0)
       : null;
-  const availableUsdg = summary?.quoteBalances.find(
-    (balance) => balance.asset === "USDG",
-  )?.available;
+  // The ledger holds USDT, USDC and USDG; all three count 1:1 as U.
+  const availableUsdg = summary
+    ? String(summary.quoteBalances.reduce((total, balance) => total + Number(balance.available), 0))
+    : undefined;
   const totalAccountValue =
     availableUsdg != null && positionValue != null
       ? String(Number(availableUsdg) + positionValue)
@@ -193,8 +204,7 @@ function Workspace({
         <span>
           Available
           <strong>
-            {amount(summary?.quoteBalances.find((balance) => balance.asset === "USDG")?.available)}{" "}
-            <small>USDG</small>
+            {amount(availableUsdg)} <small>U</small>
           </strong>
         </span>
         <span>
@@ -350,7 +360,7 @@ function Workspace({
               <dl className="portfolio-summary" aria-label="Account overview">
                 <div>
                   <dt>Meme Bot account</dt>
-                  <dd>{amount(availableUsdg)} USDG</dd>
+                  <dd>{amount(availableUsdg)} U</dd>
                 </div>
                 <div>
                   <dt>Position value</dt>
@@ -375,6 +385,8 @@ function Workspace({
                 onSell={(address) => trade(address, "SELL")}
                 onToken={openToken}
                 refreshKey={revision}
+                onConnect={connect}
+                onFundsChange={refreshAccount}
               />
             </>
           ) : (
@@ -442,6 +454,7 @@ function Workspace({
                     onQuickRequestConsumed={consumeQuick}
                     onExecutionChange={refreshAccount}
                     tradingEnabled={tradingEnabled}
+                    minBuyAmountUsd={minBuyAmountUsd}
                   />
                 </TokenDetails>
               </div>

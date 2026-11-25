@@ -56,7 +56,8 @@ const account: AccountSummary = {
     address: `0x${"9".repeat(40)}`,
     balances: [{ asset: "USDG", available: "1000", frozen: "0" }],
   },
-  quoteBalances: [{ asset: "USDG", available: "0", frozen: "0" }],
+  // The user's own U is the meme-account ledger; buys are checked against it.
+  quoteBalances: [{ asset: "USDG", available: "1000", frozen: "0" }],
   positions: [],
 };
 
@@ -162,6 +163,7 @@ describe("phase D trading", () => {
         ...account.treasury!,
         balances: [{ asset: "USDG" as const, available: "2.661567", frozen: "0" }],
       },
+      quoteBalances: [{ asset: "USDG" as const, available: "2.661567", frozen: "0" }],
     };
     const { rerender } = render(<TradingPanel {...props} account={funded} />);
     fireEvent.change(screen.getByLabelText("Trade amount"), { target: { value: "1" } });
@@ -191,12 +193,13 @@ describe("phase D trading", () => {
       },
     };
     rerender(<TradingPanel {...props} account={userFunded} />);
-    expect(screen.getByText("Insufficient Balance")).toBeInTheDocument();
+    // The user can pay, but the shared treasury cannot fill the buy on chain.
+    expect(screen.getByText("Treasury liquidity is insufficient")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Refresh quote" })).toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(createQuote).toHaveBeenCalledTimes(1);
     rerender(<TradingPanel {...props} account={{ ...userFunded, treasury: undefined }} />);
-    expect(screen.getByText("— USDG", { selector: ".trade-balance-value" })).toBeVisible();
+    expect(screen.getByText("1000 USDG", { selector: ".trade-balance-value" })).toBeVisible();
     expect(screen.getByText("Loading balance")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Refresh quote" })).toBeNull();
   });

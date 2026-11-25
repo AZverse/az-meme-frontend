@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { memeApi } from "./api";
 import { amount, price, money, safeUrl, shortAddress } from "./display";
+import { MemeFunds } from "./MemeFunds";
 import { forgetExecution, pendingExecutionId } from "./transaction-tracker";
 import type { AccountSummary, AccountTransaction } from "./types";
 
@@ -11,6 +12,8 @@ export interface PortfolioProps {
   onToken?: (tokenAddress: string) => void;
   refreshKey?: number;
   tokenFilter?: string;
+  onConnect?: () => Promise<boolean>;
+  onFundsChange?: () => void;
 }
 
 export function Portfolio(props: PortfolioProps) {
@@ -37,8 +40,10 @@ function PortfolioAccount({
   onToken,
   refreshKey,
   tokenFilter,
+  onConnect,
+  onFundsChange,
 }: PortfolioProps & { walletAddress: string }) {
-  const [tab, setTab] = useState<"positions" | "orders">("positions");
+  const [tab, setTab] = useState<"positions" | "orders" | "funds">("positions");
   const [positions, setPositions] = useState<AccountSummary["positions"] | null>(null);
   const [orderFilter, setOrderFilter] = useState<"ALL" | "CONFIRMED" | "FAILED">("ALL");
   const [orders, setOrders] = useState<AccountTransaction[] | null>(null);
@@ -109,9 +114,14 @@ function PortfolioAccount({
           <button role="tab" aria-selected={tab === "orders"} onClick={() => setTab("orders")}>
             Order history
           </button>
+          <button role="tab" aria-selected={tab === "funds"} onClick={() => setTab("funds")}>
+            Funds
+          </button>
         </div>
       )}
-      {tab === "positions" ? (
+      {tab === "funds" ? (
+        <MemeFunds refreshKey={refreshKey} onConnect={onConnect} onChange={onFundsChange} />
+      ) : tab === "positions" ? (
         <>
           {positionError && <p role="alert">{positionError}</p>}
           {!positions && !positionError && <p role="status">Loading positions…</p>}

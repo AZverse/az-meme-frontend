@@ -1,11 +1,21 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WalletTrading from "./WalletTrading";
-import { authenticateWallet, clearSessionToken, restoreWalletSession } from "./api";
+import {
+  authenticateAz,
+  authenticateWallet,
+  clearSessionToken,
+  hasAzToken,
+  memeApi,
+  restoreWalletSession,
+} from "./api";
 
 vi.mock("./api", () => ({
+  authenticateAz: vi.fn(),
   authenticateWallet: vi.fn(),
   clearSessionToken: vi.fn(),
+  hasAzToken: vi.fn(() => false),
+  memeApi: { getConfig: vi.fn(async () => ({ accountMode: "AZ_ACCOUNT" })) },
   restoreWalletSession: vi.fn(),
 }));
 
@@ -177,5 +187,28 @@ describe("WalletTrading wallet authentication", () => {
     expect(screen.getByTestId("user-id")).toBeEmptyDOMElement();
     expect(clearSessionToken).toHaveBeenCalled();
     expect(authenticateWallet).not.toHaveBeenCalled();
+  });
+
+  it("treasury mode signs the same wallet in to AZ before exposing the session", async () => {
+    vi.mocked(memeApi.getConfig).mockResolvedValueOnce({
+      accountMode: "TREASURY_OPERATORS",
+    } as Awaited<ReturnType<typeof memeApi.getConfig>>);
+    vi.mocked(hasAzToken).mockReturnValue(false);
+    vi.mocked(authenticateWallet).mockResolvedValue();
+    vi.mocked(restoreWalletSession).mockResolvedValueOnce(null).mockResolvedValue({
+      userId: "wallet-user",
+      accountId: tradingAddress,
+      loginAddress: address,
+    });
+    render(<WalletTrading />);
+    await waitFor(() => expect(provider.request).toHaveBeenCalledWith({ method: "eth_accounts" }));
+    fireEvent.click(screen.getByRole("button", { name: "连接钱包" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("wallet-address")).toHaveTextContent(tradingAddress),
+    );
+    expect(authenticateAz).toHaveBeenCalledWith(address, provider);
+    expect(vi.mocked(authenticateAz).mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(authenticateWallet).mock.invocationCallOrder[0]!,
+    );
   });
 });

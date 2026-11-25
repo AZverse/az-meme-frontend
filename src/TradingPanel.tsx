@@ -32,7 +32,12 @@ export interface TradingPanelProps {
   onQuickRequestConsumed?: (id: string) => void;
   onExecutionChange?: () => void;
   tradingEnabled?: boolean;
+  /** Backend MEME_MIN_BUY_AMOUNT_USD from /config. */
+  minBuyAmountUsd?: string;
 }
+
+const spendCurrencies = ["USDT", "USDC", "USDG"] as const;
+type SpendCurrency = (typeof spendCurrencies)[number];
 
 export function TradingPanel(props: TradingPanelProps) {
   return (
@@ -53,8 +58,17 @@ function TradingForm({
   onQuickRequestConsumed,
   onExecutionChange,
   tradingEnabled = true,
+  minBuyAmountUsd = "1",
 }: TradingPanelProps) {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
+  const ledger = account?.quoteBalances ?? [];
+  const ledgerAvailable = (currency: SpendCurrency) =>
+    ledger.find((balance) => balance.asset === currency)?.available ?? "0";
+  // Default to whichever ledger currency the user actually holds most of.
+  const [chosenSpend, setSpend] = useState<SpendCurrency | null>(null);
+  const spend: SpendCurrency =
+    chosenSpend ??
+    [...spendCurrencies].sort((a, b) => compareAmounts(ledgerAvailable(b), ledgerAvailable(a)))[0]!;
   const [amount, setAmount] = useState(() => quickBuyAmounts[0] ?? "");
   const [quote, setQuote] = useState<ValidQuote | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,6 +95,8 @@ function TradingForm({
     account?.fundingModel === "SHARED_TREASURY"
       ? (account.treasury?.balances.find((balance) => balance.asset === "USDG")?.available ?? null)
       : null;
+  // The user's own U is the meme-account ledger; the treasury only bounds what can fill.
+  const spendBalance = account?.fundingModel === "SHARED_TREASURY" ? ledgerAvailable(spend) : null;
   const honeypot = token.security?.isHoneypot === true;
   const symbol = token.symbol ?? token.tokenAddress.slice(0, 8);
 
@@ -123,10 +139,11 @@ function TradingForm({
         return "Enter an amount greater than 0";
       if (tradeSide === "BUY") {
         if (honeypot) return "Honeypot detected. Buying is disabled";
-        if (compareAmounts(input, "1") < 0 || compareAmounts(input, "9999999") > 0)
-          return "Buy amount must be between 1 and 9,999,999 U";
-        if (treasury === null) return "Loading balance";
-        if (compareAmounts(input, treasury) > 0) return "Insufficient Balance";
+        if (compareAmounts(input, minBuyAmountUsd) < 0 || compareAmounts(input, "9999999") > 0)
+          return `Buy amount must be between ${minBuyAmountUsd} and 9,999,999 U`;
+        if (spendBalance === null || treasury === null) return "Loading balance";
+        if (compareAmounts(input, spendBalance) > 0) return "Insufficient Balance";
+        if (compareAmounts(input, treasury) > 0) return "Treasury liquidity is insufficient";
       } else {
         if (ownBalance === null) return "Balance unknown";
         if (compareAmounts(input, ownBalance) > 0) return "Insufficient token balance";
@@ -135,7 +152,7 @@ function TradingForm({
         return "Trading is unavailable for this token";
       return null;
     },
-    [honeypot, ownBalance, token.tradeStatus, treasury],
+    [honeypot, minBuyAmountUsd, ownBalance, spendBalance, token.tradeStatus, treasury],
   );
 
   useEffect(() => {
@@ -228,6 +245,7 @@ function TradingForm({
           minAmountOut: prepared.minOut,
           slippageBps: prepared.slippageBps,
           feeConfigVersion: prepared.feeConfigVersion,
+          ...(tradeSide === "BUY" ? { spendCurrency: spend } : {}),
         });
         if (signal.aborted) return;
         setTransaction(row);
@@ -243,7 +261,7 @@ function TradingForm({
         if (!signal.aborted) setBusy(false);
       }
     },
-    [invalidReason, quote, token.tokenAddress, tradingEnabled, walletAddress],
+    [invalidReason, quote, spend, token.tokenAddress, tradingEnabled, walletAddress],
   );
 
   useEffect(() => {
@@ -266,12 +284,14 @@ function TradingForm({
   )[errorCode ?? ""];
   const invalid = invalidReason(side, amount);
   const expired = quote !== null && quote.expiresAt <= now;
-  const amountUnit = side === "BUY" ? "USDG" : symbol;
-  const maxAmount = side === "BUY" ? treasury : ownBalance;
+  const amountUnit = side === "BUY" ? spend : symbol;
+  const maxAmount = side === "BUY" ? spendBalance : ownBalance;
   const canUseMax =
     maxAmount !== null && /^\d+(?:\.\d+)?$/.test(maxAmount) && compareAmounts(maxAmount, "0") > 0;
   const actionLabel =
-    side === "BUY" ? `Buy ${amount.trim() || "—"} USDG` : `Sell ${amount.trim() || "—"} ${symbol}`;
+    side === "BUY"
+      ? `Buy ${amount.trim() || "—"} ${spend}`
+      : `Sell ${amount.trim() || "—"} ${symbol}`;
   const transactionState =
     transaction?.status === "CONFIRMED"
       ? "Filled"
@@ -308,8 +328,30 @@ function TradingForm({
       </div>
       <p className="trade-balance-row">
         <span className="trade-balance-label">Available</span>
-        <span className="trade-balance-value">{treasury ?? "—"} USDG</span>
+        <span className="trade-balance-value">
+          {spendBalance ?? "—"} {spend}
+        </span>
       </p>
+      {side === "BUY" && (
+        <div className="presets trade-presets" aria-label="Pay with">
+          {spendCurrencies.map((currency) => (
+            <button
+              key={currency}
+              aria-pressed={currency === spend}
+              disabled={busy || Boolean(pendingId)}
+              onClick={() => {
+                setSpend(currency);
+                setError(null);
+              }}
+            >
+              {currency} {ledgerAvailable(currency)}
+            </button>
+          ))}
+        </div>
+      )}
+      {side === "BUY" && treasury !== null && (
+        <p className="trade-wallet-balance">Treasury liquidity: {treasury} USDG</p>
+      )}
       {side === "SELL" && (
         <p className="trade-wallet-balance">
           Your balance: {ownBalance ?? "—"} {symbol}

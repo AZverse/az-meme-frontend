@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import App from "./App";
 import {
+  authenticateAz,
   authenticateWallet,
   clearSessionToken,
+  hasAzToken,
+  memeApi,
   restoreWalletSession,
   type WalletSession,
   type WalletProvider,
@@ -12,6 +15,12 @@ declare global {
   interface Window {
     ethereum?: WalletProvider;
   }
+}
+
+/** Treasury mode trades under the AZ login, so the same wallet also signs in to AZ. */
+async function treasuryMode(): Promise<boolean> {
+  const config = await memeApi.getConfig().catch(() => null);
+  return config?.accountMode === "TREASURY_OPERATORS";
 }
 
 export default function WalletTrading() {
@@ -48,6 +57,8 @@ export default function WalletTrading() {
         clearSessionToken();
         return false;
       }
+      if (!hasAzToken() && (await treasuryMode())) await authenticateAz(next, provider);
+      if (version !== identityVersion.current) return false;
       setSession(authenticated);
       return true;
     } catch (cause) {
